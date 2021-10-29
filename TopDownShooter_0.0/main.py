@@ -34,7 +34,7 @@ GAMEBULLETS = 30
 PREEXP = 1
 PREEXPMUL = 2
 LINEAR = 30
-SHOOTFREQUENCY = 0.1 #Second per shot
+SHOOTFREQUENCY = 1 #Second per shot
 BULLETPERSHOT = 6
 COLORCHANGEDURATION = 0.07
 PLAYERSPEED = 600
@@ -209,7 +209,8 @@ class TextManager:
             self.tempTxtPool.append(Text("","res/Font Styles/Cocola.ttf", 30, isActive = True))
         for i in range(permTxtCapacity):
             self.permText.append(Text("", "res/Font Styles/Vogue.ttf", 30, isActive = False))
-    def AnimateText(self,index, sTransPos = -1, sSize = -1, eSize = -1,
+    def AnimateText(self,index, sTransPos = -1, sTransPosY = -1, eTransPosY = -1,
+                    sSize = -1, eSize = -1,
                     eTransPos = -1 ,sRotPos = -1, sRotAngle =-1, eRotAngle = -1, 
                     rotTime = 1, transTime = 1, sizeTime = 1, endTxtOff = False):
         '''
@@ -221,17 +222,17 @@ class TextManager:
         deltaSize = deltaTime*(eSize - sSize)/sizeTime
         deltaAngle = deltaTime*(eRotAngle - sRotAngle)/rotTime
         deltaTrans = deltaTime*(eTransPos - sTransPos)/transTime
+        deltaTransY = deltaTime*(eTransPosY - sTransPosY)/transTime
         sizeSteps, rotSteps, transSteps = int(sizeTime/deltaTime), int(rotTime/deltaTime), int(transTime/deltaTime)
         sizeAnimRun, rotAnimRun, transAnimRun = False,False,False
-        print(deltaTime,deltaTrans, transSteps)
         def transAnimation():
             global transAnimRun
             transAnimRun = True
-            self.tempTxtPool[index].position = (sTransPos, self.tempTxtPool[index].position[1])
+            self.tempTxtPool[index].position = (sTransPos, sTransPosY)
             for i in range(transSteps):
-                self.tempTxtPool[index].position = (sTransPos+i*deltaTrans, self.tempTxtPool[index].position[1])
+                self.tempTxtPool[index].position = (sTransPos+i*deltaTrans, sTransPosY + i*deltaTransY)
                 sleep(deltaTime)
-            self.tempTxtPool[index].position = (eTransPos, self.tempTxtPool[index].position[1])
+            self.tempTxtPool[index].position = (eTransPos, eTransPosY)
             transAnimRun = False
         #TODO: Fix this rotation which sucks
         def rotAnimation():
@@ -396,7 +397,7 @@ while running:
             if SOUNDON:
                 shotSound.play()
             #Temp test
-            textManager.AnimateText(0,sTransPos = 0, eTransPos = 200, transTime = 4, endTxtOff = True, sSize= 40, eSize = 0, sizeTime = 4)
+            textManager.AnimateText(0,sTransPos = 0, eTransPos = 200, eTransPosY = 200, sTransPosY = 0, transTime = 4, endTxtOff = True, sSize= 40, eSize = 0, sizeTime = 4)
 
 
 
