@@ -5,7 +5,7 @@ block_cipher = None
 
 
 a = Analysis(['main.py'],
-             pathex=['C:\\Users\\HP\\Desktop\\d'],
+             pathex=['C:\\Users\\HP\\Desktop\\Top Down Shooter\\TopDownShooter_0.0'],
              binaries=[],
              datas=[],
              hiddenimports=[],

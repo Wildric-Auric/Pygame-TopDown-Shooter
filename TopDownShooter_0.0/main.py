@@ -1,5 +1,4 @@
 from math import pi
-from re import X
 import pygame
 import keyboard
 from random import randint, uniform
@@ -7,7 +6,6 @@ from random import choice
 from time import time, sleep
 from numpy import exp, sin, cos, tan, arctan, arctan2
 from thread6 import run_threaded
-from datetime import datetime
 
 #Init Pygame
 pygame.font.init()
@@ -171,7 +169,7 @@ class EnnemyManager:
 
 
 class Text:
-    def __init__(self, text, fontPath, fontSize, position = (0,0),color = WHITE, rotation = 0, isBold = False, isItalic = False):
+    def __init__(self, text, fontPath, fontSize, position = (0,0),color = WHITE, rotation = 0, isBold = False, isItalic = False, isActive = True):
         self.text = text
         self.fontPath = fontPath
         self.fontSize = fontSize
@@ -181,26 +179,96 @@ class Text:
         self.rotation = rotation                             #In degree, in trigonometric direction
         self.color = color
         self.font = pygame.font.Font(fontPath, fontSize)
+        self.isActive = isActive
 
-    def Resize(self,newSize):
+    def Resize(self, newSize):
         if newSize != self.fontSize:
-            self.font = pygame.font.Font(self.fontPath, newSize)
+            self.fontSize = int(newSize)
+            self.font = pygame.font.Font(self.fontPath, self.fontSize)
+    
+    def ChangeFont(self,newFontPath):
+        fontPath = newFontPath
+        self.font = pygame.font.Font(self.fontPath, self.fontSize)
     
     def Display(self, window, antialias = False):
         textSurface = self.font.render(self.text, antialias, self.color)
         if self.rotation != 0:
-            textSurface = pygame.transform.rotate(textSurface)
+            textSurface = pygame.transform.rotate(textSurface, self.rotation)
         window.blit(textSurface, self.position)
         
 
+class TextManager:
+    def __init__(self, tempTxtCapacity, permTxtCapacity):
+        '''The logic here is that there is "permanent" and temporary text buffer, permanent text buffer is dialogues one for example or tutorial
+        text, this buffer does not change to do another thing. Meanwhile, temporary buffer text changes continually;it may be used to show a score
+        bonus when carachter kills an ennemy for example
+        '''
+        self.tempTxtPool = []
+        self.permText = []
+        for i in range(tempTxtCapacity):
+            self.tempTxtPool.append(Text("","res/Font Styles/Cocola.ttf", 30, isActive = True))
+        for i in range(permTxtCapacity):
+            self.permText.append(Text("", "res/Font Styles/Vogue.ttf", 30, isActive = False))
+    def AnimateText(self,index, sTransPos = -1, sSize = -1, eSize = -1,
+                    eTransPos = -1 ,sRotPos = -1, sRotAngle =-1, eRotAngle = -1, 
+                    rotTime = 1, transTime = 1, sizeTime = 1, endTxtOff = False):
+        '''
+        Interpolate between two states, linearly for now. "e" stands for end, meanwhile "s" stands for start.
+        SHOULD BE RAN AS THREAD!
+        '''
+        #TODO: Add other interpolation styles like exponential one
+        deltaTime = 1/fps
+        deltaSize = deltaTime*(eSize - sSize)/sizeTime
+        deltaAngle = deltaTime*(eRotAngle - sRotAngle)/rotTime
+        deltaTrans = deltaTime*(eTransPos - sTransPos)/transTime
+        sizeSteps, rotSteps, transSteps = int(sizeTime/deltaTime), int(rotTime/deltaTime), int(transTime/deltaTime)
+        sizeAnimRun, rotAnimRun, transAnimRun = False,False,False
+        print(deltaTime,deltaTrans, transSteps)
+        def transAnimation():
+            global transAnimRun
+            transAnimRun = True
+            self.tempTxtPool[index].position = (sTransPos, self.tempTxtPool[index].position[1])
+            for i in range(transSteps):
+                self.tempTxtPool[index].position = (sTransPos+i*deltaTrans, self.tempTxtPool[index].position[1])
+                sleep(deltaTime)
+            self.tempTxtPool[index].position = (eTransPos, self.tempTxtPool[index].position[1])
+            transAnimRun = False
+        #TODO: Fix this rotation which sucks
+        def rotAnimation():
+            self.tempTxtPool[index].rotation = sRotAngle
+            for i in range(sizeSteps):
+                self.tempTxtPool[index].rotation = sRotAngle + i*deltaAngle
+                sleep(deltaTime)
+            self.tempTxtPool[index].rotation = eRotAngle
+
+        def sizeAnimation():
+            self.tempTxtPool[index].Resize(sSize)
+            for i in range(sizeSteps):
+                self.tempTxtPool[index].Resize(sSize + i*deltaSize)
+                sleep(deltaTime)
+            self.tempTxtPool[index].Resize(eSize)
+       
+        if sTransPos != -1:
+            run_threaded(transAnimation)
+        if sRotAngle != -1:
+            run_threaded(rotAnimation)
+        if sSize != -1:
+            run_threaded(sizeAnimation)
+        while sizeAnimRun + rotAnimRun + transAnimRun != 0:
+            continue
+        if endTxtOff:
+            self.tempTxtPool[index].isActive = False
+
+        
 
 class Game:
     def __init__(self, width, height):
         self.window = pygame.display.set_mode((width, height))
     def SetBgColor(self, bgColor):
         self.window.fill(bgColor)
-clock = pygame.time.Clock()
 
+
+clock = pygame.time.Clock()
 #Useful functions
 def clamp(minn, maxx, value):
     return max(minn, min(value, maxx))
@@ -224,7 +292,8 @@ player = Player(20,20, 10,PLAYERSPEED, 3, ORANGE, 20)
 ennemyManager = EnnemyManager(1, 500, 500, areAlive=True)
 bulletManager = BulletManager(GAMEBULLETS)
 imaginaryBulletManager= BulletManager(GAMEBULLETS) #Maybe temporary solution I don't know how much this is optimized
-t = Text("Comic style","res/Font Styles/BADABB__.TTF", 40)
+
+textManager = TextManager(1,1)
 
 moveX,moveY = 0,0           #Taking -1, 0, or 1 as values of player Move
 game = Game(WIDTH, HEIGHT)
@@ -247,8 +316,7 @@ while running:
     #Calculating shoot direction 
     mousePos = pygame.mouse.get_pos() #Gives a couple x,y
     bulletDirection = (mousePos[0] - player.x, mousePos[1] - player.y)
-    magn = CalculateMagnitude(bulletDirection)
-    bulletDirection = (bulletDirection[0]/magn, bulletDirection[1]/magn)   #Normalized TODO: Make this in function
+    bulletDirection = NormalizeVect(bulletDirection)
 
     #Move player
     player.x += moveX*player.spd/fps
@@ -327,13 +395,14 @@ while running:
                         randint(50,255),randint(50,255)), direction = bulletDirection, shotByPlayer = True)
             if SOUNDON:
                 shotSound.play()
+            #Temp test
+            textManager.AnimateText(0,sTransPos = 0, eTransPos = 200, transTime = 4, endTxtOff = True, sSize= 40, eSize = 0, sizeTime = 4)
 
 
 
-    t.Resize(int(abs(40*cos(time()))))
-    
-    t.Display(game.window)
-
+    for i in range(len(textManager.tempTxtPool)):
+        textManager.tempTxtPool[i].text = "Hello World"
+        textManager.tempTxtPool[i].Display(game.window, antialias = True)
     #Updating shapes
     pygame.display.flip()
     #Calculating fps
@@ -341,10 +410,6 @@ while running:
 
     #Updating time variables
     shootFrequency = max(0, shootFrequency - 1/fps)
-
-
-
-
 
 
 pygame.quit()
