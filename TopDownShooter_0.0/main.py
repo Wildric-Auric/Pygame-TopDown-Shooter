@@ -6,7 +6,6 @@ from random import choice
 from time import time, sleep
 from numpy import exp, sin, cos, tan, arctan, arctan2
 from thread6 import run_threaded
-
 #Init Pygame
 pygame.font.init()
 pygame.mixer.init()
@@ -23,32 +22,34 @@ ORANGE = (255,165,0)
 RED = (255, 0, 0)
 BLUE = (0,0,255)
 BLACK = (0,0,0)
+YELLOW = (255, 255, 0)
 DEFAULTFONT = pygame.font.SysFont('Comic Sans MS', 30) #430
 COMICFONT = pygame.font.Font("res/Font Styles/BADABB__.TTF", 530)
 WIDTH = 1440
 HEIGHT = 720
-SOUNDON = False
+SOUNDON = True
+SHOOTWORDS = ["BOOOOM!", "SPLAAASH!", "POOOOOF!"]
 fps = 60 
 #Gameplay Variables
 GAMEBULLETS = 30
 PREEXP = 1
 PREEXPMUL = 2
 LINEAR = 30
-SHOOTFREQUENCY = 1 #Second per shot
-BULLETPERSHOT = 6
+SHOOTFREQUENCY = 0.1 #Second per shot
+BULLETPERSHOT = 1
 COLORCHANGEDURATION = 0.07
 PLAYERSPEED = 600
 BULLETDAMAGE = 10
-BULLETSCALE = 5
+BULLETSCALE = 10
 BULLETSPD = 1000
 ennemy1Spd = 1000
 
 shootFrequency = 0
 minPercent = 2
-maxPercent = 15   #For shooting randomness
+maxPercent = 5   #For shooting randomness
 
 ennemyMove = 50
-pushForce = 20
+pushForce = 20      #Number of pixels of moving when touched by a bullet
 #Class Definition
 
 
@@ -169,7 +170,7 @@ class EnnemyManager:
 
 
 class Text:
-    def __init__(self, text, fontPath, fontSize, position = (0,0),color = WHITE, rotation = 0, isBold = False, isItalic = False, isActive = True):
+    def __init__(self, text, fontPath, fontSize, position = (0,0),color = WHITE, rotation = 0, isBold = False, isItalic = False, isActive = False):
         self.text = text
         self.fontPath = fontPath
         self.fontSize = fontSize
@@ -180,6 +181,7 @@ class Text:
         self.color = color
         self.font = pygame.font.Font(fontPath, fontSize)
         self.isActive = isActive
+        self.sizeAnimRun, self.rotAnimRun, self.transAnimRun = False,False,False
 
     def Resize(self, newSize):
         if newSize != self.fontSize:
@@ -205,10 +207,30 @@ class TextManager:
         '''
         self.tempTxtPool = []
         self.permText = []
+        self.curTempIndex = 0   #Current temp index
+
         for i in range(tempTxtCapacity):
-            self.tempTxtPool.append(Text("","res/Font Styles/Cocola.ttf", 30, isActive = True))
+            self.tempTxtPool.append(Text("","res/Font Styles/BADABB__.TTF", 30, isActive = False))
         for i in range(permTxtCapacity):
             self.permText.append(Text("", "res/Font Styles/Vogue.ttf", 30, isActive = False))
+
+    def activateFreeTxt(self):
+        for i in range(self.curTempIndex, (l :=len(self.tempTxtPool))):
+            if not self.tempTxtPool[i].isActive:
+                self.tempTxtPool[i].isActive = True
+                self.curTempIndex = i + 1
+                if self.curTempIndex>l-1:
+                    self.curTempIndex = 0
+                return i
+        for i in range(self.curTempIndex):
+            if not self.tempTxtPool[i].isActive:
+                self.tempTxtPool[i].isActive = True
+                self.curTempIndex = i + 1
+                # if self.curTempIndex>l-1:
+                #     self.curTempIndex = 0    
+                return i
+        return -1
+        
     def AnimateText(self,index, sTransPos = -1, sTransPosY = -1, eTransPosY = -1,
                     sSize = -1, eSize = -1,
                     eTransPos = -1 ,sRotPos = -1, sRotAngle =-1, eRotAngle = -1, 
@@ -224,41 +246,66 @@ class TextManager:
         deltaTrans = deltaTime*(eTransPos - sTransPos)/transTime
         deltaTransY = deltaTime*(eTransPosY - sTransPosY)/transTime
         sizeSteps, rotSteps, transSteps = int(sizeTime/deltaTime), int(rotTime/deltaTime), int(transTime/deltaTime)
-        sizeAnimRun, rotAnimRun, transAnimRun = False,False,False
         def transAnimation():
-            global transAnimRun
-            transAnimRun = True
+            self.tempTxtPool[index].transAnimRun = True
             self.tempTxtPool[index].position = (sTransPos, sTransPosY)
             for i in range(transSteps):
                 self.tempTxtPool[index].position = (sTransPos+i*deltaTrans, sTransPosY + i*deltaTransY)
                 sleep(deltaTime)
             self.tempTxtPool[index].position = (eTransPos, eTransPosY)
-            transAnimRun = False
+            self.tempTxtPool[index].transAnimRun = False
+
+            if (t:=self.tempTxtPool[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
+                if endTxtOff != 0:
+                    sleep(endTxtOff)
+                    self.tempTxtPool[index].isActive = False
+
         #TODO: Fix this rotation which sucks
         def rotAnimation():
+            self.tempTxtPool[index].rotAnimRun = True
             self.tempTxtPool[index].rotation = sRotAngle
             for i in range(sizeSteps):
                 self.tempTxtPool[index].rotation = sRotAngle + i*deltaAngle
                 sleep(deltaTime)
             self.tempTxtPool[index].rotation = eRotAngle
+            self.tempTxtPool[index].rotAnimRun = False
+
+            if (t:=self.tempTxtPool[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
+                if endTxtOff != 0:
+                    sleep(endTxtOff)
+                    self.tempTxtPool[index].isActive = False
+
 
         def sizeAnimation():
+            self.tempTxtPool[index].sizeAnimRun = True
             self.tempTxtPool[index].Resize(sSize)
             for i in range(sizeSteps):
                 self.tempTxtPool[index].Resize(sSize + i*deltaSize)
                 sleep(deltaTime)
             self.tempTxtPool[index].Resize(eSize)
-       
-        if sTransPos != -1:
-            run_threaded(transAnimation)
-        if sRotAngle != -1:
-            run_threaded(rotAnimation)
-        if sSize != -1:
-            run_threaded(sizeAnimation)
-        while sizeAnimRun + rotAnimRun + transAnimRun != 0:
-            continue
-        if endTxtOff:
-            self.tempTxtPool[index].isActive = False
+            self.tempTxtPool[index].sizeAnimRun = False
+
+            if(t:=self.tempTxtPool[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
+                if endTxtOff != 0:
+                    sleep(endTxtOff)
+                    self.tempTxtPool[index].isActive = False
+
+
+        if index != -1:
+            if sTransPos != -1:
+                run_threaded(transAnimation)
+            if sRotAngle != -1:
+                run_threaded(rotAnimation)
+            if sSize != -1:
+                run_threaded(sizeAnimation)
+            # while (t:=self.tempTxtPool[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
+            #     continue
+            #I should pass this while loop to another core as the I slows the thread 
+            if endTxtOff != 0:
+                sleep(endTxtOff)
+                self.tempTxtPool[index].isActive = False
+
+        #The text for now would stay active if all of this threads finish at the same time
 
         
 
@@ -289,18 +336,18 @@ def NormalizeVect(vect):
 
 #Init class objects
 
-player = Player(20,20, 10,PLAYERSPEED, 3, ORANGE, 20)
+player = Player(20,20, 10,PLAYERSPEED, 3, WHITE, 20)
 ennemyManager = EnnemyManager(1, 500, 500, areAlive=True)
 bulletManager = BulletManager(GAMEBULLETS)
-imaginaryBulletManager= BulletManager(GAMEBULLETS) #Maybe temporary solution I don't know how much this is optimized
+imaginaryBulletManager= BulletManager(GAMEBULLETS, scale = BULLETSCALE) #Maybe temporary solution I don't know how much this is optimized
 
-textManager = TextManager(1,1)
+textManager = TextManager(10,1)
 
 moveX,moveY = 0,0           #Taking -1, 0, or 1 as values of player Move
 game = Game(WIDTH, HEIGHT)
 running = 1
 
-
+t = Text("BOOM!", "res/Font Styles/Vogue.ttf", 40, (500,500), color = RED)
 
 #Update and game logic
 while running:
@@ -396,21 +443,38 @@ while running:
                         randint(50,255),randint(50,255)), direction = bulletDirection, shotByPlayer = True)
             if SOUNDON:
                 shotSound.play()
-            #Temp test
-            textManager.AnimateText(0,sTransPos = 0, eTransPos = 200, eTransPosY = 200, sTransPosY = 0, transTime = 4, endTxtOff = True, sSize= 40, eSize = 0, sizeTime = 4)
+          
+
+            index = textManager.activateFreeTxt()
+            textManager.tempTxtPool[index].Resize(0)  #TODO: Fix this: IT'S NOT A SOLUTION
+            textManager.tempTxtPool[index].ChangeFont(choice(["res/Font Styles/BADABB__.TTF", "res/Font Styles/Cocola.ttf", "res/Font Styles/Fresh Lychee.ttf"]))
+            textManager.tempTxtPool[index].rotation = randint(-45,45)
+            textManager.tempTxtPool[index].text = choice(SHOOTWORDS)
+            textManager.tempTxtPool[index].color = (255,randint(0,255), 0)
+            run_threaded(textManager.AnimateText, index,sTransPos = player.x, eTransPos = player.x + randint(-80,80), 
+                                    eTransPosY = player.y + randint(-80,80), sTransPosY = player.y, 
+                                    transTime = 0.1, endTxtOff = 0.5, sSize= 0, eSize = randint(20,40), sizeTime = 0.1)
 
 
 
     for i in range(len(textManager.tempTxtPool)):
-        textManager.tempTxtPool[i].text = "Hello World"
-        textManager.tempTxtPool[i].Display(game.window, antialias = True)
+        if textManager.tempTxtPool[i].isActive:
+            textManager.tempTxtPool[i].Display(game.window, antialias = True)
+
+    #Display fps:
+    game.window.blit(DEFAULTFONT.render(str(fps),False, BLUE), (0,0))
     #Updating shapes
     pygame.display.flip()
     #Calculating fps
+    fps = int(clock.get_fps())
     clock.tick(60)
+    if fps < 5:
+        fps = 60
 
     #Updating time variables
     shootFrequency = max(0, shootFrequency - 1/fps)
 
+
+#TODO: Fix fps drop
 
 pygame.quit()
