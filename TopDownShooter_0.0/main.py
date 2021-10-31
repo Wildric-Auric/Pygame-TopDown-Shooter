@@ -29,6 +29,7 @@ WIDTH = 1440
 HEIGHT = 720
 SOUNDON = True
 SHOOTWORDS = ["BOOOOM!", "SPLAAASH!", "POOOOOF!"]
+MAXFPS = 2000
 fps = 60 
 #Gameplay Variables
 GAMEBULLETS = 30
@@ -39,6 +40,7 @@ SHOOTFREQUENCY = 0.1 #Second per shot
 BULLETPERSHOT = 1
 COLORCHANGEDURATION = 0.07
 PLAYERSPEED = 600
+moveX,moveY = 0,0           #Taking -1, 0, or 1 as values of player Move
 BULLETDAMAGE = 10
 BULLETSCALE = 10
 BULLETSPD = 1000
@@ -50,6 +52,21 @@ maxPercent = 5   #For shooting randomness
 
 ennemyMove = 50
 pushForce = 20      #Number of pixels of moving when touched by a bullet
+
+transitionTime = 0.2
+#Init clock for fps
+clock = pygame.time.Clock() 
+#Draw dictionary
+drawDic = {
+    0:[],
+    1:[],
+    2:[],
+    3:[],
+    4:[],
+    5:[],
+    6:[],
+    7:[],
+}
 #Class Definition
 
 
@@ -71,10 +88,14 @@ class Bullet:
         self.direction = direction
         self.initialX, self.initialY = 0,0 #Newly added to handle exponential speed
     
-    def draw(self, screen):
-        pygame.draw.circle(screen, self.color, (self.x, self.y), self.scale)
-
-
+    def Draw(self, screen, order, camCoord:tuple = (0,0)):
+        if order >= 0:
+            if order not in drawDic:
+                order = max(drawDic)+1
+            drawDic[order].append((screen, self.color, (self.x-camCoord[0], self.y-camCoord[1]), self.scale))
+            
+        
+            
 
 
 
@@ -106,8 +127,9 @@ class BulletManager:
 
         
 
+
 class Player:
-    def __init__(self, x, y, hp, spd, resistance, color, scale):
+    def __init__(self, x, y, hp, spd, resistance, color, scale, isControlled = True):
         self.x = x
         self.y = y
         self.hp = hp
@@ -115,11 +137,16 @@ class Player:
         self.resistance = resistance
         self.color = color
         self.scale = scale
+        self.isControlled = isControlled
     
-    def draw(self, screen):
-        pygame.draw.circle(screen, self.color, (self.x, self.y), self.scale)
+    def Draw(self, screen, order, camCoord:tuple = (0,0)):
+        if order >= 0:
+            if order not in drawDic:
+                order = max(drawDic)+1
+            drawDic[order].append((screen, self.color, (self.x-camCoord[0], self.y-camCoord[1]), self.scale))
         
         
+
 
 class Ennemy:
     def __init__(self, x, y, hp, spd, dmg, scale, resistance, color = RED, isAlive = False):
@@ -135,14 +162,18 @@ class Ennemy:
 
         self.colorThread = False
 
-    def draw(self, screen):
-        pygame.draw.circle(screen, self.color, (self.x, self.y), self.scale)
-
+    def Draw(self, screen, order, camCoord:tuple = (0,0)):
+        if order >= 0:
+            if order not in drawDic:
+                order = max(drawDic)+1
+            drawDic[order].append((screen, self.color, (self.x-camCoord[0], self.y-camCoord[1]), self.scale))
     def ChangeColor(self, color, time):
         sleep(time)
         self.color = color
         self.colorThread = False
-    
+
+
+
 
 class EnnemyManager:
     def __init__(self, number, x = 0, y = 0, hp = 100, spd = 0, dmg = 0, resistance = 0, scale = 20, color = RED, areAlive = False):
@@ -166,6 +197,7 @@ class EnnemyManager:
         self.current += 1
         if self.current > self.number:
             self.current = 0
+
 
 
 
@@ -197,7 +229,9 @@ class Text:
         if self.rotation != 0:
             textSurface = pygame.transform.rotate(textSurface, self.rotation)
         window.blit(textSurface, self.position)
-        
+
+
+
 
 class TextManager:
     def __init__(self, tempTxtCapacity, permTxtCapacity):
@@ -304,9 +338,7 @@ class TextManager:
             if endTxtOff != 0:
                 sleep(endTxtOff)
                 self.tempTxtPool[index].isActive = False
-
         #The text for now would stay active if all of this threads finish at the same time
-
         
 
 class Game:
@@ -316,7 +348,34 @@ class Game:
         self.window.fill(bgColor)
 
 
-clock = pygame.time.Clock()
+
+class Camera:
+    def __init__(self, nonAttached):
+        self.x = 0
+        self.y = 0
+        self.nonAttached = nonAttached
+        self.isMoving = False
+    
+    def UpdatePosition(self,newX, newY, interpolationTime = 0):
+        def interpolate():
+            self.isMoving = True
+            deltaX = (newX - self.x)/(interpolationTime*fps)
+            deltaY = (newY - self.y)/(interpolationTime*fps)
+            steps = int(interpolationTime*fps)
+            for i in range(steps):
+                self.x += deltaX
+                self.y += deltaY
+                sleep(1/fps)
+            self.x = newX
+            self.y = newY
+            self.isMoving = False
+    
+        if interpolationTime > 0 and self.isMoving == False:
+            run_threaded(interpolate)
+        elif interpolationTime <= 0:
+            self.x = newX
+            self.y = newY
+
 #Useful functions
 def clamp(minn, maxx, value):
     return max(minn, min(value, maxx))
@@ -333,25 +392,38 @@ def NormalizeVect(vect):
 
 
 
-
 #Init class objects
-
 player = Player(20,20, 10,PLAYERSPEED, 3, WHITE, 20)
 ennemyManager = EnnemyManager(1, 500, 500, areAlive=True)
 bulletManager = BulletManager(GAMEBULLETS)
 imaginaryBulletManager= BulletManager(GAMEBULLETS, scale = BULLETSCALE) #Maybe temporary solution I don't know how much this is optimized
-
 textManager = TextManager(10,1)
-
-moveX,moveY = 0,0           #Taking -1, 0, or 1 as values of player Move
 game = Game(WIDTH, HEIGHT)
-running = 1
+t = Text("BOOM!", "res/Font Styles/Vogue.ttf", 40, (500,500), color = RED)    #For testing
 
-t = Text("BOOM!", "res/Font Styles/Vogue.ttf", 40, (500,500), color = RED)
+
+#Init info arrays
+#I sound out that class objects are passed by reference to an array, it allows me to do a lot of abstraction
+staticObjects = []
+dynamicObjects = [player, ennemyManager.pool]
+attachedToCam = [textManager.permText]
+nonAttachedToCam = [player, ennemyManager.pool]
+
+cam = Camera(nonAttachedToCam)
 
 #Update and game logic
+running = True
 while running:
-    
+    drawDic = {
+        0:[],
+        1:[],
+        2:[],
+        3:[],
+        4:[],
+        5:[],
+        6:[],
+        7:[],
+    }
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -359,17 +431,33 @@ while running:
     #Setting background color
     game.SetBgColor(BLACK)
     #Getting move inputs
-    moveX = (keyboard.is_pressed("right") or keyboard.is_pressed("D")) - (keyboard.is_pressed("left") or keyboard.is_pressed("Q"))
-    moveY = (keyboard.is_pressed("down") or keyboard.is_pressed("S"))- (keyboard.is_pressed("up") or keyboard.is_pressed("Z"))
+    moveX = (keyboard.is_pressed("right") or keyboard.is_pressed("D")) - (keyboard.is_pressed("left") or keyboard.is_pressed("Q"))*player.isControlled
+    moveY = (keyboard.is_pressed("down") or keyboard.is_pressed("S"))- (keyboard.is_pressed("up") or keyboard.is_pressed("Z"))*player.isControlled
     #Calculating shoot direction 
     mousePos = pygame.mouse.get_pos() #Gives a couple x,y
+    mousePos = (mousePos[0]+cam.x, mousePos[1]+cam.y)
     bulletDirection = (mousePos[0] - player.x, mousePos[1] - player.y)
     bulletDirection = NormalizeVect(bulletDirection)
-
     #Move player
     player.x += moveX*player.spd/fps
     player.y += moveY*player.spd/fps
-    player.draw(game.window)
+    #Drawing the player
+    #TODO:make draw function take layer to draw in and draw all at the end
+    player.Draw(game.window, 1,(cam.x, cam.y))
+    #Update Camera when player crosses level bounderies
+    
+    if (player.x >= cam.x + WIDTH) and not cam.isMoving:  #RIGHT BOUNDARY
+        player.x += 1
+        cam.UpdatePosition(cam.x + WIDTH, cam.y, transitionTime)
+    elif (player.x <= cam.x) and not cam.isMoving:          #LEFT BOUNDARY
+        player.x -= 1
+        cam.UpdatePosition(cam.x - WIDTH, cam.y, transitionTime)
+    elif (player.y <= cam.y)and not cam.isMoving:         #TOP BOUNDARY
+        player.y -= 1
+        cam.UpdatePosition(cam.x, cam.y - HEIGHT, transitionTime)          
+    elif (player.y >= cam.y + HEIGHT)and not cam.isMoving:       #DOWN BOUNDARY
+        player.y += 1
+        cam.UpdatePosition(cam.x, cam.y + HEIGHT, transitionTime)
     #Updating bullets
     for bullet in bulletManager.pool:
         if bullet.isActive:
@@ -392,36 +480,37 @@ while running:
                     #Pushing the ennemy
                     ennemyManager.pool[i].x += bullet.direction[0]*pushForce
                     ennemyManager.pool[i].y += bullet.direction[1]*pushForce
-            bullet.draw(game.window)
+            bullet.Draw(game.window, 2, (cam.x, cam.y))
 
     for bullet in imaginaryBulletManager.pool:
-        if bullet.isActive:
-            bullet.x += (bullet.direction[0]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialX-bullet.x)/LINEAR)))/fps
-            bullet.y += (bullet.direction[1]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialY-bullet.y)/LINEAR)))/fps
-            bullet.lifeTime -= 1/fps
-            if bullet.lifeTime<=0:
-                    bullet.lifeTime = bullet.constLT
-                    bullet.isActive = False
-            # for i in range(len(ennemyManager.pool)):
-            #     ennemy = ennemyManager.pool[i]
-            #     if (CalculateMagnitude((abs(ennemy.x - bullet.x), abs(ennemy.y - bullet.y))) <= ennemy.scale + bullet.scale) and bullet.shotByPlayer:
-            #         bullet.lifeTime = bullet.constLT
-            #         bullet.isActive = False
-            #         by = choice([-1,1])
-            #         newVect = (0,0)
-            #         if bulletDirection[1] < 0.01:
-            #             newVect = (0,1)
-            #         elif bulletDirection[0] < 0.01:
-            #             newVect = (1,0)
-            #         else:
-            #             newVect = NormalizeVect((-bullet.direction[1]*by/bullet.direction[0],by))
-            #         ennemy.x += newVect[0]*ennemyMove
-            #         ennemy.y  += newVect[1]*ennemyMove
+        # if bullet.isActive:
+        #     bullet.x += (bullet.direction[0]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialX-bullet.x)/LINEAR)))/fps
+        #     bullet.y += (bullet.direction[1]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialY-bullet.y)/LINEAR)))/fps
+        #     bullet.lifeTime -= 1/fps
+        #     if bullet.lifeTime<=0:
+        #             bullet.lifeTime = bullet.constLT
+        #             bullet.isActive = False
+        #     for i in range(len(ennemyManager.pool)):
+        #         ennemy = ennemyManager.pool[i]
+        #         if (CalculateMagnitude((abs(ennemy.x - bullet.x), abs(ennemy.y - bullet.y))) <= ennemy.scale + bullet.scale) and bullet.shotByPlayer:
+        #             bullet.lifeTime = bullet.constLT
+        #             bullet.isActive = False
+        #             by = choice([-1,1])
+        #             newVect = (0,0)
+        #             if bulletDirection[1] < 0.01:
+        #                 newVect = (0,1)
+        #             elif bulletDirection[0] < 0.01:
+        #                 newVect = (1,0)
+        #             else:
+        #                 newVect = NormalizeVect((-bullet.direction[1]*by/bullet.direction[0],by))
+        #             ennemy.x += newVect[0]*ennemyMove
+        #             ennemy.y  += newVect[1]*ennemyMove
+        pass
 
     #Ennemies rendering and their behaviour
     for ennemy in ennemyManager.pool:
         if ennemy.isAlive:
-            ennemy.draw(game.window)
+            ennemy.Draw(game.window, 0, (cam.x, cam.y))
     
     #Player Shoot
     if (pygame.mouse.get_pressed()) == (1,0,0):
@@ -455,8 +544,11 @@ while running:
                                     eTransPosY = player.y + randint(-80,80), sTransPosY = player.y, 
                                     transTime = 0.1, endTxtOff = 0.5, sSize= 0, eSize = randint(20,40), sizeTime = 0.1)
 
+    for key in drawDic:
+        for args in drawDic[key]:
+            pygame.draw.circle(*args) #For know there are just circles
 
-
+    #Drawing temporary text
     for i in range(len(textManager.tempTxtPool)):
         if textManager.tempTxtPool[i].isActive:
             textManager.tempTxtPool[i].Display(game.window, antialias = True)
@@ -467,14 +559,11 @@ while running:
     pygame.display.flip()
     #Calculating fps
     fps = int(clock.get_fps())
-    clock.tick(60)
+    clock.tick(MAXFPS)
     if fps < 5:
         fps = 60
-
     #Updating time variables
     shootFrequency = max(0, shootFrequency - 1/fps)
 
-
-#TODO: Fix fps drop
 
 pygame.quit()
