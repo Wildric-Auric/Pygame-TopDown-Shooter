@@ -149,7 +149,7 @@ class Player:
 
 
 class Ennemy:
-    def __init__(self, x, y, hp, spd, dmg, scale, resistance, color = RED, isAlive = False):
+    def __init__(self, x, y, hp, spd, dmg, scale, resistance, color = RED, isAlive = False, canDodge = False):
         self.x = x
         self.y = y
         self.hp = hp
@@ -159,6 +159,7 @@ class Ennemy:
         self.resistance = resistance
         self.isAlive = isAlive
         self.color = color
+        self.canDodge = canDodge
 
         self.colorThread = False
 
@@ -202,7 +203,8 @@ class EnnemyManager:
 
 
 class Text:
-    def __init__(self, text, fontPath, fontSize, position = (0,0),color = WHITE, rotation = 0, isBold = False, isItalic = False, isActive = False):
+    def __init__(self, text, fontPath, fontSize, position = (0,0),color = WHITE, alpha = 255, rotation = 0, 
+                isBold = False, isItalic = False, isActive = False):
         self.text = text
         self.fontPath = fontPath
         self.fontSize = fontSize
@@ -211,9 +213,10 @@ class Text:
         self.position = position
         self.rotation = rotation                             #In degree, in trigonometric direction
         self.color = color
+        self.alpha = alpha
         self.font = pygame.font.Font(fontPath, fontSize)
         self.isActive = isActive
-        self.sizeAnimRun, self.rotAnimRun, self.transAnimRun = False,False,False
+        self.sizeAnimRun, self.rotAnimRun, self.transAnimRun, self.alphaAnimRun = False,False,False,False
 
     def Resize(self, newSize):
         if newSize != self.fontSize:
@@ -228,6 +231,7 @@ class Text:
         textSurface = self.font.render(self.text, antialias, self.color)
         if self.rotation != 0:
             textSurface = pygame.transform.rotate(textSurface, self.rotation)
+        textSurface.set_alpha(self.alpha)
         window.blit(textSurface, self.position)
 
 
@@ -249,6 +253,10 @@ class TextManager:
             self.permText.append(Text("", "res/Font Styles/Vogue.ttf", 30, isActive = False))
 
     def activateFreeTxt(self):
+        '''
+        Make a temp text buffer active and return it's index, is all buffers are busy, it returns -1
+        -1 is handled in AnimateText; it means the text would not be animated.
+        '''
         for i in range(self.curTempIndex, (l :=len(self.tempTxtPool))):
             if not self.tempTxtPool[i].isActive:
                 self.tempTxtPool[i].isActive = True
@@ -265,8 +273,8 @@ class TextManager:
                 return i
         return -1
         
-    def AnimateText(self,index, sTransPos = -1, sTransPosY = -1, eTransPosY = -1,
-                    sSize = -1, eSize = -1,
+    def AnimateText(self, targetedList, index, sTransPos = -1, sTransPosY = -1, eTransPosY = -1,
+                    sSize = -1, eSize = -1, sAlpha = -1, eAlpha = -1, alphaTime = 1,
                     eTransPos = -1 ,sRotPos = -1, sRotAngle =-1, eRotAngle = -1, 
                     rotTime = 1, transTime = 1, sizeTime = 1, endTxtOff = False):
         '''
@@ -279,50 +287,65 @@ class TextManager:
         deltaAngle = deltaTime*(eRotAngle - sRotAngle)/rotTime
         deltaTrans = deltaTime*(eTransPos - sTransPos)/transTime
         deltaTransY = deltaTime*(eTransPosY - sTransPosY)/transTime
-        sizeSteps, rotSteps, transSteps = int(sizeTime/deltaTime), int(rotTime/deltaTime), int(transTime/deltaTime)
+        deltaAlpha = deltaTime*(eAlpha - sAlpha)/alphaTime
+        sizeSteps, rotSteps, transSteps, alphaSteps = int(sizeTime/deltaTime), int(rotTime/deltaTime), int(transTime/deltaTime), int(alphaTime/deltaTime)
         def transAnimation():
-            self.tempTxtPool[index].transAnimRun = True
-            self.tempTxtPool[index].position = (sTransPos, sTransPosY)
+            targetedList[index].transAnimRun = True
+            targetedList[index].position = (sTransPos, sTransPosY)
             for i in range(transSteps):
-                self.tempTxtPool[index].position = (sTransPos+i*deltaTrans, sTransPosY + i*deltaTransY)
+                targetedList[index].position = (sTransPos+i*deltaTrans, sTransPosY + i*deltaTransY)
                 sleep(deltaTime)
-            self.tempTxtPool[index].position = (eTransPos, eTransPosY)
-            self.tempTxtPool[index].transAnimRun = False
+            targetedList[index].position = (eTransPos, eTransPosY)
+            targetedList[index].transAnimRun = False
 
-            if (t:=self.tempTxtPool[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
+            if (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun != 0:
                 if endTxtOff != 0:
                     sleep(endTxtOff)
-                    self.tempTxtPool[index].isActive = False
+                    targetedList[index].isActive = False
 
         #TODO: Fix this rotation which sucks
         def rotAnimation():
-            self.tempTxtPool[index].rotAnimRun = True
-            self.tempTxtPool[index].rotation = sRotAngle
+            targetedList[index].rotAnimRun = True
+            targetedList[index].rotation = sRotAngle
             for i in range(sizeSteps):
-                self.tempTxtPool[index].rotation = sRotAngle + i*deltaAngle
+                targetedList[index].rotation = sRotAngle + i*deltaAngle
                 sleep(deltaTime)
-            self.tempTxtPool[index].rotation = eRotAngle
-            self.tempTxtPool[index].rotAnimRun = False
+            targetedList[index].rotation = eRotAngle
+            targetedList[index].rotAnimRun = False
 
-            if (t:=self.tempTxtPool[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
+            if (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun!= 0:
                 if endTxtOff != 0:
                     sleep(endTxtOff)
-                    self.tempTxtPool[index].isActive = False
+                    targetedList[index].isActive = False
 
 
         def sizeAnimation():
-            self.tempTxtPool[index].sizeAnimRun = True
-            self.tempTxtPool[index].Resize(sSize)
+            targetedList[index].sizeAnimRun = True
+            targetedList[index].Resize(sSize)
             for i in range(sizeSteps):
-                self.tempTxtPool[index].Resize(sSize + i*deltaSize)
+                targetedList[index].Resize(sSize + i*deltaSize)
                 sleep(deltaTime)
-            self.tempTxtPool[index].Resize(eSize)
-            self.tempTxtPool[index].sizeAnimRun = False
+            targetedList[index].Resize(eSize)
+            targetedList[index].sizeAnimRun = False
 
-            if(t:=self.tempTxtPool[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
+            if(t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun != 0:
                 if endTxtOff != 0:
                     sleep(endTxtOff)
-                    self.tempTxtPool[index].isActive = False
+                    targetedList[index].isActive = False
+        
+
+        def alphaAnimation():
+            targetedList[index].alphaAnimRun = True
+            targetedList[index].alpha = sAlpha
+            for i in range(alphaSteps):
+                targetedList[index].alpha = sAlpha + i*deltaAlpha
+                sleep(deltaTime)
+            targetedList[index].alpha = eAlpha
+            targetedList[index].alphaAnimRun = False
+            if(t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun != 0:
+                if endTxtOff != 0:
+                    sleep(endTxtOff)
+                    targetedList[index].isActive = False
 
 
         if index != -1:
@@ -332,20 +355,26 @@ class TextManager:
                 run_threaded(rotAnimation)
             if sSize != -1:
                 run_threaded(sizeAnimation)
-            # while (t:=self.tempTxtPool[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
+            if sAlpha !=-1:
+                run_threaded(alphaAnimation)
+            # while (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
             #     continue
             #I should pass this while loop to another core as the I slows the thread 
             if endTxtOff != 0:
                 sleep(endTxtOff)
-                self.tempTxtPool[index].isActive = False
-        #The text for now would stay active if all of this threads finish at the same time
+                targetedList[index].isActive = False
+        #The text for now would stay active if all of this threads finish exactly at the same time
         
 
 
 
 class Game:
-    def __init__(self, width, height):
-        self.window = pygame.display.set_mode((width, height))
+    def __init__(self, width, height, fullScreen = False):
+        if fullScreen:
+            self.window = pygame.display.set_mode((width, height), flags=pygame.FULLSCREEN)
+        else:
+            self.window = pygame.display.set_mode((width, height))
+
     def SetBgColor(self, bgColor):
         self.window.fill(bgColor)
 
@@ -381,6 +410,7 @@ class Camera:
 
 
 
+
 class Wall:
     def __init__(self, x,y, color, halfWidth, halfHeight):
         self.x = x
@@ -395,6 +425,8 @@ class Wall:
             rect = pygame.Rect(self.x-camCoord[0]-self.hw, self.y-camCoord[1]-self.hh, 2*self.hw, 2*self.hh)
 
             drawDic[order].append(("r",(screen, self.color,rect)))
+
+
 
 
 class LevelManager:
@@ -423,12 +455,12 @@ player = Player(20,20, 10,PLAYERSPEED, 3, WHITE, 20)
 ennemyManager = EnnemyManager(1, 500, 500, areAlive=True)
 bulletManager = BulletManager(GAMEBULLETS)
 imaginaryBulletManager= BulletManager(GAMEBULLETS, scale = BULLETSCALE) #Maybe temporary solution I don't know how much this is optimized
-textManager = TextManager(10,1)
+textManager = TextManager(20,1)
 game = Game(WIDTH, HEIGHT)
 levelManager = LevelManager(0,0)
 levelManager.walls = [Wall(1440/2,700, BLUE, 1440/2,20), 
-Wall(1420, 350, BLUE, 20, 300)
-]
+                      Wall(1420, 350, BLUE, 20, 300)]
+
 
 #Init info arrays
 #I sound out that class objects are passed by reference to an array, it allows me to do a lot of abstraction
@@ -516,7 +548,6 @@ while running:
                         # forbidden = (player.x, player.y, movX,movY)
                         break
     #Drawing the player
-    #TODO:make draw function take layer to draw in and draw all at the end
     player.Draw(game.window, 1,(cam.x, cam.y))
     #Update Camera when player crosses level bounderies
     
@@ -609,13 +640,13 @@ while running:
           
 
             index = textManager.activateFreeTxt()
-            textManager.tempTxtPool[index].Resize(0)  #TODO: Fix this: IT'S NOT A SOLUTION
+            textManager.tempTxtPool[index].text = ""
             textManager.tempTxtPool[index].ChangeFont(choice(["res/Font Styles/BADABB__.TTF", "res/Font Styles/Cocola.ttf", "res/Font Styles/Fresh Lychee.ttf"]))
             textManager.tempTxtPool[index].rotation = randint(-45,45)
             textManager.tempTxtPool[index].text = choice(SHOOTWORDS)
             textManager.tempTxtPool[index].color = (255,randint(0,255), 0)
-            run_threaded(textManager.AnimateText, index,sTransPos = player.x-cam.x, eTransPos = player.x-cam.x + randint(-80,80), 
-                                    eTransPosY = player.y-cam.y + randint(-80,80), sTransPosY = player.y-cam.y, 
+            run_threaded(textManager.AnimateText, textManager.tempTxtPool, index,sTransPos = player.x-cam.x, eTransPos = player.x-cam.x + randint(-80,80), 
+                                    eTransPosY = player.y-cam.y + randint(-80,80), sTransPosY = player.y-cam.y, sAlpha = 255, eAlpha = 0, alphaTime=0.5,
                                     transTime = 0.1, endTxtOff = 0.5, sSize= 0, eSize = randint(20,40), sizeTime = 0.1)
 
     for key in drawDic:
@@ -629,6 +660,10 @@ while running:
     for i in range(len(textManager.tempTxtPool)):
         if textManager.tempTxtPool[i].isActive:
             textManager.tempTxtPool[i].Display(game.window, antialias = True)
+    #Drawing permanent text
+    for i in range(len(textManager.permText)):
+        if textManager.permText[i].isActive:
+            textManager.permText[i].Display(game.window, antialias = False)
 
     #Display fps:
     game.window.blit(DEFAULTFONT.render(str(fps),False, BLUE), (0,0))
