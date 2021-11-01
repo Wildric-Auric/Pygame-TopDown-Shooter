@@ -1,11 +1,12 @@
 from math import pi
 import pygame
 import keyboard
-from random import randint, uniform
-from random import choice
+from random import randint, uniform, choice
 from time import time, sleep
 from numpy import exp, sin, cos, tan, arctan, arctan2
+from pygame.version import SDL, SDLVersion
 from thread6 import run_threaded
+import threading
 #Init Pygame
 pygame.font.init()
 pygame.mixer.init()
@@ -29,6 +30,7 @@ WIDTH = 1440
 HEIGHT = 720
 SOUNDON = True
 SHOOTWORDS = ["BOOOOM!", "SPLAAASH!", "POOOOOF!"]
+COMBOWORDS = ["Good combo!", "Nice!", "bloodthirsty!", "ruthless killer!", "Daemon!", "God of War!"]
 MAXFPS = 60
 fps = 60 
 #Gameplay Variables
@@ -54,6 +56,8 @@ ennemyMove = 50
 pushForce = 20      #Number of pixels of moving when touched by a bullet
 
 transitionTime = 0.2
+
+comboTime = 1.5   #Time after which you cannot continue your combo
 #Init clock for fps
 clock = pygame.time.Clock() 
 #Draw dictionary
@@ -217,15 +221,25 @@ class Text:
         self.font = pygame.font.Font(fontPath, fontSize)
         self.isActive = isActive
         self.sizeAnimRun, self.rotAnimRun, self.transAnimRun, self.alphaAnimRun = False,False,False,False
+        self.animInfos = [[0,0,0,0],[0,0,0,0]]
+        self.currentAnimationState = 0
 
     def Resize(self, newSize):
         if newSize != self.fontSize:
             self.fontSize = int(newSize)
             self.font = pygame.font.Font(self.fontPath, self.fontSize)
     
-    def ChangeFont(self,newFontPath):
-        fontPath = newFontPath
+    def ChangeFont(self,newFontPath, newSize = -1):
+        self.fontPath = newFontPath
+        if newSize != -1:
+            self.fontSize = newSize
         self.font = pygame.font.Font(self.fontPath, self.fontSize)
+    
+    def UseSysFont(self, newFontPath, newSize):
+        fontPath = newFontPath
+        if newSize != -1:
+            self.fontSize = newSize
+        self.font = pygame.font.SysFont(self.fontPath, self.fontSize)
     
     def Display(self, window, antialias = False):
         textSurface = self.font.render(self.text, antialias, self.color)
@@ -273,10 +287,10 @@ class TextManager:
                 return i
         return -1
         
-    def AnimateText(self, targetedList, index, sTransPos = -1, sTransPosY = -1, eTransPosY = -1,
+    def AnimateText(self, targetedList, index, animationState = 0, sTransPos = -1, sTransPosY = -1, eTransPosY = -1,
                     sSize = -1, eSize = -1, sAlpha = -1, eAlpha = -1, alphaTime = 1,
                     eTransPos = -1 ,sRotPos = -1, sRotAngle =-1, eRotAngle = -1, 
-                    rotTime = 1, transTime = 1, sizeTime = 1, endTxtOff = False):
+                    rotTime = 1, transTime = 1, sizeTime = 1, endTxtOff = -1):
         '''
         Interpolate between two states, linearly for now. "e" stands for end, meanwhile "s" stands for start.
         SHOULD BE RAN AS THREAD!
@@ -295,12 +309,15 @@ class TextManager:
             for i in range(transSteps):
                 targetedList[index].position = (sTransPos+i*deltaTrans, sTransPosY + i*deltaTransY)
                 sleep(deltaTime)
+                if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
+            
             targetedList[index].position = (eTransPos, eTransPosY)
             targetedList[index].transAnimRun = False
 
-            if (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun != 0:
-                if endTxtOff != 0:
+            if (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun == 0:
+                if endTxtOff != -1:
                     sleep(endTxtOff)
+                    if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
                     targetedList[index].isActive = False
 
         #TODO: Fix this rotation which sucks
@@ -310,12 +327,17 @@ class TextManager:
             for i in range(sizeSteps):
                 targetedList[index].rotation = sRotAngle + i*deltaAngle
                 sleep(deltaTime)
+                if targetedList[index].animInfos[animationState] == [1,1,1,1]:
+                    return
+
             targetedList[index].rotation = eRotAngle
             targetedList[index].rotAnimRun = False
 
-            if (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun!= 0:
-                if endTxtOff != 0:
+            if (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun == 0:
+                if endTxtOff != -1:
                     sleep(endTxtOff)
+                    if targetedList[index].animInfos[animationState] == [1,1,1,1]:
+                         return
                     targetedList[index].isActive = False
 
 
@@ -325,12 +347,15 @@ class TextManager:
             for i in range(sizeSteps):
                 targetedList[index].Resize(sSize + i*deltaSize)
                 sleep(deltaTime)
+                if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
+
             targetedList[index].Resize(eSize)
             targetedList[index].sizeAnimRun = False
 
-            if(t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun != 0:
-                if endTxtOff != 0:
+            if(t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun == 0:
+                if endTxtOff != -1:
                     sleep(endTxtOff)
+                    if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
                     targetedList[index].isActive = False
         
 
@@ -340,11 +365,14 @@ class TextManager:
             for i in range(alphaSteps):
                 targetedList[index].alpha = sAlpha + i*deltaAlpha
                 sleep(deltaTime)
+                if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
+
             targetedList[index].alpha = eAlpha
             targetedList[index].alphaAnimRun = False
-            if(t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun != 0:
-                if endTxtOff != 0:
+            if(t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun == 0:
+                if endTxtOff != -1:
                     sleep(endTxtOff)
+                    if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
                     targetedList[index].isActive = False
 
 
@@ -360,9 +388,6 @@ class TextManager:
             # while (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
             #     continue
             #I should pass this while loop to another core as the I slows the thread 
-            if endTxtOff != 0:
-                sleep(endTxtOff)
-                targetedList[index].isActive = False
         #The text for now would stay active if all of this threads finish exactly at the same time
         
 
@@ -434,6 +459,17 @@ class LevelManager:
         self.x = x 
         self.y = y
         self.walls = []
+
+
+
+
+class ScoreManager: 
+    def __init__(self):
+        self.score = 0
+        self.totalHits = 0
+        self.totalEnnemiesKilled = 0
+        self.highestScore = 0
+
 #Useful functions
 def clamp(minn, maxx, value):
     return max(minn, min(value, maxx))
@@ -461,7 +497,7 @@ levelManager = LevelManager(0,0)
 levelManager.walls = [Wall(1440/2,700, BLUE, 1440/2,20), 
                       Wall(1420, 350, BLUE, 20, 300)]
 
-
+scoreManager = ScoreManager()
 #Init info arrays
 #I sound out that class objects are passed by reference to an array, it allows me to do a lot of abstraction
 staticObjects = []
@@ -560,7 +596,7 @@ while running:
     elif (player.y <= cam.y)and not cam.isMoving:         #TOP BOUNDARY
         player.y -= 1
         cam.UpdatePosition(cam.x, cam.y - HEIGHT, transitionTime)          
-    elif (player.y >= cam.y + HEIGHT)and not cam.isMoving:       #DOWN BOUNDARY
+    elif (player.y >= cam.y + HEIGHT) and not cam.isMoving:       #DOWN BOUNDARY
         player.y += 1
         cam.UpdatePosition(cam.x, cam.y + HEIGHT, transitionTime)
     #Updating bullets
@@ -578,6 +614,44 @@ while running:
                     bullet.lifeTime = bullet.constLT
                     bullet.isActive = False
                     hitSound.play()
+                    #Hit text effect and score
+                    scoreManager.score +=1
+                    score= scoreManager.score
+                    highest = scoreManager.highestScore
+                    scoreManager.highestScore = scoreManager.score if highest < scoreManager.score else highest
+                    #TODO:Fix this mess about killing a thread, make it more general
+                    anim = textManager.permText[0].currentAnimationState
+                    textManager.permText[0].currentAnimationState = 1-anim
+                    textManager.permText[0].alphaAnimRun = False
+                    (textManager.permText[0].animInfos)[anim] = [1,1,1,1]
+                    (textManager.permText[0].animInfos)[1-anim] = [0,0,0,0]
+                    textManager.permText[0].ChangeFont("res/Font Styles/Alice_in_Wonderland_3.TTF", 45)
+                    
+                    if 0<score<10:
+                        comboWord = ""
+                    elif 10<=score<20:
+                        comboWord = COMBOWORDS[0]
+                    elif 20<=score<40:
+                        comboWord = COMBOWORDS[1]
+                    elif 40<=score<80:
+                        comboWord = COMBOWORDS[2]
+                    elif 80<=score<150:
+                        comboWord = COMBOWORDS[3]
+                    elif 150<=score<300:
+                        comboWord = COMBOWORDS[4]
+                    elif 300<=score<500:
+                        comboWord = COMBOWORDS[5]
+
+                    textManager.permText[0].text = "+ {} {}".format(scoreManager.score, comboWord)
+                    textManager.permText[0].rotation = randint(-10,10)
+                    pos = (1100,350)
+                    if player.x-cam.x > WIDTH/2:
+                        pos = (30, 350) 
+                    textManager.permText[0].position = pos
+                    textManager.permText[0].color = RED
+                    textManager.permText[0].isActive = True
+                    textManager.AnimateText(textManager.permText, 0, animationState=1-anim, sAlpha = 255, eAlpha = 0, alphaTime= comboTime, endTxtOff=0)
+                    #Colorize the ennemy
                     if not  ennemyManager.pool[i].colorThread:
                         ennemyManager.pool[i].colorThread = True
                         run_threaded(ennemyManager.pool[i].ChangeColor, ennemyManager.pool[i].color, COLORCHANGEDURATION)
@@ -586,7 +660,9 @@ while running:
                     ennemyManager.pool[i].x += bullet.direction[0]*pushForce
                     ennemyManager.pool[i].y += bullet.direction[1]*pushForce
             bullet.Draw(game.window, 2, (cam.x, cam.y))
-
+    #Renitialize score
+    if not textManager.permText[0].isActive:
+        scoreManager.score = 0
     for bullet in imaginaryBulletManager.pool:
         if bullet.isActive:
             bullet.x += (bullet.direction[0]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialX-bullet.x)/LINEAR)))/fps
@@ -663,7 +739,7 @@ while running:
     #Drawing permanent text
     for i in range(len(textManager.permText)):
         if textManager.permText[i].isActive:
-            textManager.permText[i].Display(game.window, antialias = False)
+            textManager.permText[i].Display(game.window, antialias = True)
 
     #Display fps:
     game.window.blit(DEFAULTFONT.render(str(fps),False, BLUE), (0,0))
