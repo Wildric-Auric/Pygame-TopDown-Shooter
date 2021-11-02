@@ -18,6 +18,10 @@ shotSound = pygame.mixer.Sound('res/Laser7.wav')
 hitSound = pygame.mixer.Sound('res/Hit.wav')
 
 #Const and global variables
+TEMPTXTANIMBUFF = [0,1,2,3,4,5,6,7,8,9,10]
+COMBOMETERANIMBUFF = [11,12]
+
+
 WHITE = (255,255,255)
 ORANGE = (255,165,0)
 RED = (255, 0, 0)
@@ -33,6 +37,7 @@ SHOOTWORDS = ["BOOOOM!", "SPLAAASH!", "POOOOOF!"]
 COMBOWORDS = ["Good combo!", "Nice!", "bloodthirsty!", "ruthless killer!", "Daemon!", "God of War!"]
 MAXFPS = 60
 fps = 60 
+deltaTime = 1/fps
 #Gameplay Variables
 GAMEBULLETS = 30
 PREEXP = 1
@@ -53,11 +58,12 @@ minPercent = 0
 maxPercent = 0   #For shooting randomness
 
 ennemyMove = 50
-pushForce = 20      #Number of pixels of moving when touched by a bullet
+pushForce = 0      #Number of pixels of moving when touched by a bullet
 
 transitionTime = 0.2
 
 comboTime = 1.5   #Time after which you cannot continue your combo
+
 #Init clock for fps
 clock = pygame.time.Clock() 
 #Draw dictionary
@@ -72,7 +78,6 @@ drawDic = {
     7:[],
 }
 #Class Definition
-
 
 
 class Bullet:
@@ -416,13 +421,13 @@ class Camera:
     def UpdatePosition(self,newX, newY, interpolationTime = 0):
         def interpolate():
             self.isMoving = True
-            deltaX = (newX - self.x)/(interpolationTime*fps)
+            deltaX = (newX - self.x*deltaTime)/interpolationTime
             deltaY = (newY - self.y)/(interpolationTime*fps)
             steps = int(interpolationTime*fps)
             for i in range(steps):
                 self.x += deltaX
                 self.y += deltaY
-                sleep(1/fps)
+                sleep(deltaTime)
             self.x = newX
             self.y = newY
             self.isMoving = False
@@ -470,6 +475,31 @@ class ScoreManager:
         self.totalEnnemiesKilled = 0
         self.highestScore = 0
 
+
+
+
+
+class CoroutinesManager:
+    def __init__(self,maxCoroutines):
+        self.coroutines = []
+        for i in range(maxCoroutines):
+            self.coroutines.append(None)
+    def startCoroutine(self, generator, *args, idd = None):
+        if idd == None:
+            for i in range(len(self.coroutines)):
+                if self.coroutines[i] == None:
+                    idd = i    #Picking up free coroutine
+                    break
+            if idd == None:
+                print("Warning: coroutine array size exceeded. Array was appended")
+                idd = len(self.coroutines)
+                self.coroutines.append(None)
+        self.coroutines[idd] = generator(idd,*args)
+        return idd
+    
+    def stopCoroutine(self, idd):
+        self.coroutines[idd] = None 
+
 #Useful functions
 def clamp(minn, maxx, value):
     return max(minn, min(value, maxx))
@@ -482,8 +512,6 @@ def NormalizeVect(vect):
         x = vect[0]/CalculateMagnitude(vect)
         y = vect[1]/CalculateMagnitude(vect)
         return (x,y)
-#------------------
-
 
 
 #Init class objects
@@ -496,20 +524,68 @@ game = Game(WIDTH, HEIGHT)
 levelManager = LevelManager(0,0)
 levelManager.walls = [Wall(1440/2,700, BLUE, 1440/2,20), 
                       Wall(1420, 350, BLUE, 20, 300)]
-
 scoreManager = ScoreManager()
 #Init info arrays
-#I sound out that class objects are passed by reference to an array, it allows me to do a lot of abstraction
+#I found out that class objects are passed by reference to an array, it allows me to do a lot of abstraction
 staticObjects = []
 dynamicObjects = [player, ennemyManager.pool]
 attachedToCam = [textManager.permText]
 nonAttachedToCam = [player, ennemyManager.pool]
-
 cam = Camera(nonAttachedToCam)
+coManager = CoroutinesManager(14)
+#Coroutines generators
+def waitForSeconds(seconds):
+    awaitTime = seconds
+    while True:
+        awaitTime -= deltaTime
+        if awaitTime>0:
+            yield False
+        else:
+            yield True
+            break
 
-forbidden = (None,None,None,None)
+def GprintAfter(idd,text,time):
+    wait = waitForSeconds(time)
+    while not next(wait):
+       #Write the code executed at each frame here
+       yield
+    else:
+        #Write the code executed after "time" has passed here
+        coManager.coroutines[idd] = None
+        print(text)
+        yield
+
+def GInterpolateObjectValue(idd, obj, att:str, value, time):
+    wait = waitForSeconds(time)
+    startValue = getattr(obj, att)
+    while not next(wait):
+       deltaValue = (deltaTime/time)*value
+       current = getattr(obj, att)
+       setattr(obj, att, current + deltaValue)
+       yield
+    else:
+        #Write the code executed after "time" has passed here
+        coManager.coroutines[idd] = None
+        setattr(obj, att, startValue + value)
+        yield
+
+def GchangeObjBoolean(idd, obj, att, value, time):
+    wait = waitForSeconds(time)
+    while not next(wait):
+       #Write the code executed at each frame here
+       yield
+    else:
+        #Write the code executed after "time" has passed here
+        coManager.coroutines[idd] = None
+        setattr(obj, att, value)
+        yield
+
+
 #Update and game logic
+forbidden = (None,None,None,None)
 running = True
+# a = coManager.startCoroutine(GprintAfter,"Test Succeeded", 5)
+# b = coManager.startCoroutine(GprintAfter, "Pygame is better than Unity", 10)
 while running:
     drawDic = {
         0:[],
@@ -524,8 +600,12 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_0:
+                pass
 
-
+    if keyboard.is_pressed("E"):
+        deltaTime=0
     #Setting background color
     game.SetBgColor(BLACK)
     #Getting move inputs
@@ -539,8 +619,8 @@ while running:
     bulletDirection = (mousePos[0] - player.x, mousePos[1] - player.y)
     bulletDirection = NormalizeVect(bulletDirection)
     #Move player
-    player.x += moveX*player.spd/fps
-    player.y += moveY*player.spd/fps
+    player.x += moveX*player.spd*deltaTime
+    player.y += moveY*player.spd*deltaTime
     #Handle player collision
     for wall in levelManager.walls:
         wall.Draw(game.window, 0, (cam.x,cam.y))
@@ -602,9 +682,9 @@ while running:
     #Updating bullets
     for bullet in bulletManager.pool:
         if bullet.isActive:
-            bullet.x += (bullet.direction[0]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialX-bullet.x)/LINEAR)))/fps
-            bullet.y += (bullet.direction[1]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialY-bullet.y)/LINEAR)))/fps
-            bullet.lifeTime -= 1/fps
+            bullet.x += (bullet.direction[0]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialX-bullet.x)/LINEAR)))*deltaTime
+            bullet.y += (bullet.direction[1]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialY-bullet.y)/LINEAR)))*deltaTime
+            bullet.lifeTime -= deltaTime
             if bullet.lifeTime<=0:
                  bullet.lifeTime = bullet.constLT
                  bullet.isActive = False
@@ -623,8 +703,7 @@ while running:
                     anim = textManager.permText[0].currentAnimationState
                     textManager.permText[0].currentAnimationState = 1-anim
                     textManager.permText[0].alphaAnimRun = False
-                    (textManager.permText[0].animInfos)[anim] = [1,1,1,1]
-                    (textManager.permText[0].animInfos)[1-anim] = [0,0,0,0]
+    
                     textManager.permText[0].ChangeFont("res/Font Styles/Alice_in_Wonderland_3.TTF", 45)
                     
                     if 0<score<10:
@@ -648,9 +727,12 @@ while running:
                     if player.x-cam.x > WIDTH/2:
                         pos = (30, 350) 
                     textManager.permText[0].position = pos
-                    textManager.permText[0].color = RED
+                    textManager.permText[0].color = (min(255,200+score),0,0)
                     textManager.permText[0].isActive = True
-                    textManager.AnimateText(textManager.permText, 0, animationState=1-anim, sAlpha = 255, eAlpha = 0, alphaTime= comboTime, endTxtOff=0)
+                    textManager.permText[0].alpha = 255
+                    coManager.startCoroutine(GInterpolateObjectValue, textManager.permText[0], "alpha", -255, 1.5, idd = COMBOMETERANIMBUFF[0])
+                    coManager.startCoroutine(GchangeObjBoolean, textManager.permText[0], "isActive", False, 1.5, idd = COMBOMETERANIMBUFF[1])
+                    #textManager.AnimateText(textManager.permText, 0, animationState=1-anim, sAlpha = 255, eAlpha = 0, alphaTime= comboTime, endTxtOff=0)
                     #Colorize the ennemy
                     if not  ennemyManager.pool[i].colorThread:
                         ennemyManager.pool[i].colorThread = True
@@ -665,9 +747,9 @@ while running:
         scoreManager.score = 0
     for bullet in imaginaryBulletManager.pool:
         if bullet.isActive:
-            bullet.x += (bullet.direction[0]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialX-bullet.x)/LINEAR)))/fps
-            bullet.y += (bullet.direction[1]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialY-bullet.y)/LINEAR)))/fps
-            bullet.lifeTime -= 1/fps
+            bullet.x += (bullet.direction[0]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialX-bullet.x)/LINEAR)))*deltaTime
+            bullet.y += (bullet.direction[1]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialY-bullet.y)/LINEAR)))*deltaTime
+            bullet.lifeTime -= deltaTime
             if bullet.lifeTime<=0:
                     bullet.lifeTime = bullet.constLT
                     bullet.isActive = False
@@ -725,6 +807,12 @@ while running:
                                     eTransPosY = player.y-cam.y + randint(-80,80), sTransPosY = player.y-cam.y, sAlpha = 255, eAlpha = 0, alphaTime=0.5,
                                     transTime = 0.1, endTxtOff = 0.5, sSize= 0, eSize = randint(20,40), sizeTime = 0.1)
 
+    #Advancing coroutines 
+    for co in coManager.coroutines:
+        if co != None:
+            next(co)
+        
+    #Drawing shapes
     for key in drawDic:
         for args in drawDic[key]:
             if args[0] == "c":
@@ -752,6 +840,5 @@ while running:
         fps = 60
     #Updating time variables
     shootFrequency = max(0, shootFrequency - 1/fps)
-
-
+    deltaTime = 1/fps
 pygame.quit()
