@@ -4,23 +4,19 @@ import keyboard
 from random import randint, uniform, choice
 from time import time, sleep
 from numpy import exp, sin, cos, tan, arctan, arctan2
-from pygame.version import SDL, SDLVersion
 from thread6 import run_threaded
-import threading
 #Init Pygame
 pygame.font.init()
 pygame.mixer.init()
 pygame.mixer.set_num_channels(40)
-
-
 #Loading ressources
-shotSound = pygame.mixer.Sound('res/Laser7.wav')
+SHOTSOUND0 = pygame.mixer.Sound('res/Laser7.wav')
+PISTOLSHOTSOUND = pygame.mixer.Sound('res/Pistolet Magnum.wav')
+PISTOLEQUIPSOUND = pygame.mixer.Sound('res/Pistol Equip1.wav')
 hitSound = pygame.mixer.Sound('res/Hit.wav')
-
 #Const and global variables
 TEMPTXTANIMBUFF = [x for x in range(0,41)]
 COMBOMETERANIMBUFF = [41,42]
-
 
 WHITE = (255,255,255)
 ORANGE = (255,165,0)
@@ -35,33 +31,20 @@ HEIGHT = 720
 SOUNDON = True
 SHOOTWORDS = ["BOOOOM!", "SPLAAASH!", "POOOOOF!"]
 COMBOWORDS = ["Good combo!", "Nice!", "bloodthirsty!", "ruthless killer!", "Daemon!", "God of War!"]
-MAXFPS = 2000
+MAXFPS = 61
 fps = 60 
 deltaTime = 1/fps
 #Gameplay Variables
 GAMEBULLETS = 30
-PREEXP = 1
-PREEXPMUL = 2
-LINEAR = 30
-SHOOTFREQUENCY = 0.1 #Second per shot
-BULLETPERSHOT = 1
 COLORCHANGEDURATION = 0.07
 PLAYERSPEED = 1000
 moveX,moveY = 0,0           #Taking -1, 0, or 1 as values of player Move
-BULLETDAMAGE = 10
-BULLETSCALE = 10
-BULLETSPD = 1000
 ennemy1Spd = 1000
-
-shootFrequency = 0
-minPercent = 0
-maxPercent = 0   #For shooting randomness
 
 ennemyMove = 50
 pushForce = 0      #Number of pixels of moving when touched by a bullet
-
+shootFrequency = 0
 transitionTime = 0.2
-
 comboTime = 1.5   #Time after which you cannot continue your combo
 
 #Init clock for fps
@@ -79,11 +62,33 @@ drawDic = {
 }
 #Class Definition
 
+class Gun:
+    def __init__(self, shootFrequency, bulletPerShot = 1, btSpd = 1000, btDmg = 1, 
+                btScale = 10, btColor = WHITE, btLifeTime = 4, btLifeDistance = -1,
+                 isOwnerPlayer = True, btPreExpMul=0, btPreExp=1, btLinear=100, minRandom = 0, maxRandom = 0, shotSound = SHOTSOUND0):
+        self.shootFrequency = shootFrequency
+        self.bulletPerShot = bulletPerShot
+        self.minRandom = minRandom
+        self.maxRandom = maxRandom
+        self.isOwnerPlayer = isOwnerPlayer
+
+        self.btSpd = btSpd
+        self.btDmg = btDmg
+        self.btColor = btColor
+        self.btScale = btScale
+        self.btLifeTime = btLifeTime
+        self.btLifeDistance = btLifeDistance
+        self.btPreExpMul = btPreExpMul
+        self.btPreExp = btPreExp
+        self.btLinear = btLinear
+        self.shotSound = shotSound
+
+
 
 class Bullet:
     def __init__(self, x, y, spd, dmg, direction, 
-                scale = 1, color = WHITE, constLt = -1, constLD = 2000, isActive = False,  
-                shotByPlayer = False):
+                scale = 1, associatedGun = None, color = WHITE, constLt = 0.5, constLD = -1, isActive = False,  
+                shotByPlayer = False, preExpMul = 1, preExp = 1, linear = 1):
         #If the variable shotByPlayer is False it means the bullet should hit the player
         self.x = x
         self.y = y
@@ -97,6 +102,9 @@ class Bullet:
         self.isActive = isActive
         self.direction = direction
         self.initialX, self.initialY = 0,0 #Newly added to handle exponential speed
+        self.preExp = preExp
+        self.preExpMul = preExpMul
+        self.linear = linear
     
     def Draw(self, screen, order, camCoord:tuple = (0,0)):
         if order >= 0:
@@ -117,19 +125,25 @@ class BulletManager:
         for i in range(capacity):
             self.pool.append(Bullet(x, y, spd = spd, dmg = dmg, direction = (0,0), scale = scale, color = color)) #Instatiate pool object where there is all balls
         
-    def Instantiate(self, x, y, spd, dmg, scale, color, direction, shotByPlayer): #Instatiate a FREE bullet
-        (self.pool[self.current]).isActive = True 
-        (self.pool[self.current]).x = x 
-        (self.pool[self.current]).y = y
-        (self.pool[self.current]).initialX = x
-        (self.pool[self.current]).initialY = y
-        (self.pool[self.current]).spd = spd
-        (self.pool[self.current]).dmg = dmg
-        (self.pool[self.current]).scale = scale
-        (self.pool[self.current]).color = color
-        (self.pool[self.current]).direction = direction
-        (self.pool[self.current]).shotByPlayer = shotByPlayer
-        (self.pool[self.current]).lifeTime = (self.pool[self.current]).constLT
+    def Instantiate(self, x, y, direction, associatedGun:Gun): #Instatiate a FREE bullet
+        bullet = self.pool[self.current]
+        bullet.associatedGun = associatedGun
+        bullet.shotByPlayer = associatedGun.isOwnerPlayer
+        bullet.isActive = True 
+        bullet.x = x 
+        bullet.y = y
+        bullet.initialX = x
+        bullet.initialY = y
+        bullet.spd = associatedGun.btSpd
+        bullet.dmg = associatedGun.btDmg
+        bullet.scale = associatedGun.btScale
+        bullet.color = associatedGun.btColor
+        bullet.direction = direction
+        bullet.lifeTime = associatedGun.btLifeTime
+        bullet.lifeDistance = associatedGun.btLifeDistance
+        bullet.preExp = associatedGun.btPreExp
+        bullet.preExpMul = associatedGun.btPreExpMul
+        bullet.linear = associatedGun.btLinear
         self.current +=1
         if self.current >= self.capacity:
             self.current = 0
@@ -520,7 +534,7 @@ def NormalizeVect(vect):
 player = Player(20,20, 10,PLAYERSPEED, 3, WHITE, 20)
 ennemyManager = EnnemyManager(1, 500, 500, areAlive=True)
 bulletManager = BulletManager(GAMEBULLETS)
-imaginaryBulletManager= BulletManager(GAMEBULLETS, scale = BULLETSCALE) #Maybe temporary solution I don't know how much this is optimized
+imaginaryBulletManager= BulletManager(GAMEBULLETS) #Maybe temporary solution I don't know how much this is optimized
 textManager = TextManager(20,1)
 game = Game(WIDTH, HEIGHT)
 levelManager = LevelManager(0,0)
@@ -535,6 +549,13 @@ attachedToCam = [textManager.permText]
 nonAttachedToCam = [player, ennemyManager.pool]
 cam = Camera(nonAttachedToCam)
 coManager = CoroutinesManager(70)
+#Gun list--------------------------------------------------------
+gun_Pistol = Gun(1, 3, shotSound=PISTOLSHOTSOUND)
+gun_MachineGun = Gun(0.1, minRandom=0,maxRandom=8, btScale=5)
+
+
+currentGun = gun_Pistol
+#----------------------------------------------------------------
 #Coroutines generators
 def waitForSeconds(seconds):
     awaitTime = seconds
@@ -586,8 +607,7 @@ def GchangeObjBoolean(idd, obj, att, value, time):
 #Update and game logic
 forbidden = (None,None,None,None)
 running = True
-# a = coManager.startCoroutine(GprintAfter,"Test Succeeded", 5)
-# b = coManager.startCoroutine(GprintAfter, "Pygame is better than Unity", 10)
+
 while running:
     drawDic = {
         0:[],
@@ -604,7 +624,14 @@ while running:
             running = False
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_0:
-                pass
+                if currentGun == gun_Pistol:
+                    currentGun = gun_MachineGun
+                    shootFrequency = 0.2
+                    PISTOLEQUIPSOUND.play()
+                else:
+                    currentGun = gun_Pistol
+                    shootFrequency = 0.2
+                    PISTOLEQUIPSOUND.play()
 
     if keyboard.is_pressed("E"):
         deltaTime=0
@@ -684,8 +711,8 @@ while running:
     #Updating bullets
     for bullet in bulletManager.pool:
         if bullet.isActive:
-            bullet.x += (bullet.direction[0]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialX-bullet.x)/LINEAR)))*deltaTime
-            bullet.y += (bullet.direction[1]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialY-bullet.y)/LINEAR)))*deltaTime
+            bullet.x += (bullet.direction[0]*bullet.spd*(bullet.preExp + bullet.preExpMul*exp(-abs(bullet.initialX-bullet.x)/bullet.linear)))*deltaTime
+            bullet.y += (bullet.direction[1]*bullet.spd*(bullet.preExp + bullet.preExpMul*exp(-abs(bullet.initialY-bullet.y)/bullet.linear)))*deltaTime
             if bullet.lifeTime != -1:
                 bullet.lifeTime -= deltaTime
                 if bullet.lifeTime<=0:
@@ -751,8 +778,8 @@ while running:
         scoreManager.score = 0
     for bullet in imaginaryBulletManager.pool:
         if bullet.isActive:
-            bullet.x += (bullet.direction[0]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialX-bullet.x)/LINEAR)))*deltaTime
-            bullet.y += (bullet.direction[1]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialY-bullet.y)/LINEAR)))*deltaTime
+            bullet.x += (bullet.direction[0]*bullet.spd*(bullet.preExp + bullet.preExpMul*exp(-abs(bullet.initialX-bullet.x)/bullet.linear)))*deltaTime
+            bullet.y += (bullet.direction[1]*bullet.spd*(bullet.preExp + bullet.preExpMul*exp(-abs(bullet.initialY-bullet.y)/bullet.linear)))*deltaTime
             bullet.lifeTime -= deltaTime
             if bullet.lifeTime<=0:
                     bullet.lifeTime = bullet.constLT
@@ -782,23 +809,22 @@ while running:
     #Player Shoot
     if (pygame.mouse.get_pressed()) == (1,0,0):
         if (shootFrequency == 0):
-            shootFrequency = SHOOTFREQUENCY
-            for i in range(BULLETPERSHOT):
+            shootFrequency = currentGun.shootFrequency
+            for i in range(currentGun.bulletPerShot):
                 #Randomize shot direction
-                percent = randint(minPercent, maxPercent)*choice([-1,1])*pi/180
+                percent = randint(currentGun.minRandom, currentGun.maxRandom)*choice([-1,1])*pi/180
                 angle = pi/2
                 signX = bulletDirection[0]
                 signY = bulletDirection[1]
                 if bulletDirection[0]: angle = arctan2(bulletDirection[1],bulletDirection[0])
                 bulletDirection = (cos(angle+percent), sin(angle+percent))
                 #Instantiate Bullet
-                bulletManager.Instantiate(player.x, player.y, spd = BULLETSPD, dmg = BULLETDAMAGE,scale = BULLETSCALE, color = (randint(50,255),
-                                        randint(50,255),randint(50,255)), direction = bulletDirection, shotByPlayer = True)
+                bulletManager.Instantiate(player.x, player.y, associatedGun=currentGun, direction = bulletDirection)
 
-                imaginaryBulletManager.Instantiate(player.x, player.y, spd = BULLETSPD*2, dmg = BULLETDAMAGE,scale = BULLETSCALE, color = (randint(50,255),
-                        randint(50,255),randint(50,255)), direction = bulletDirection, shotByPlayer = True)
+                # imaginaryBulletManager.Instantiate(player.x, player.y, spd = BULLETSPD*2, dmg = BULLETDAMAGE,scale = BULLETSCALE, color = (randint(50,255),
+                #         randint(50,255),randint(50,255)), direction = bulletDirection, shotByPlayer = True)
             if SOUNDON:
-                shotSound.play()
+                currentGun.shotSound.play()
           
 
             index = textManager.activateFreeTxt()
@@ -839,12 +865,13 @@ while running:
     pygame.display.flip()
     #Calculating fps
     fps = int(clock.get_fps())
-    clock.tick(MAXFPS)
     if fps < 5:
         fps = 60
     #Updating time variables
-    shootFrequency = max(0, shootFrequency - 1/fps)
+    shootFrequency = max(0, shootFrequency - deltaTime)
     deltaTime = 1/fps
+
+    clock.tick(MAXFPS)
 pygame.quit()
 
 #Text animation know can run in threads or in coroutines; for instance, here there is the combometer animation which runs in coroutine
