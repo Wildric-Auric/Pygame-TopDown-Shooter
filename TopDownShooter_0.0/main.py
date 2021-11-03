@@ -18,8 +18,8 @@ shotSound = pygame.mixer.Sound('res/Laser7.wav')
 hitSound = pygame.mixer.Sound('res/Hit.wav')
 
 #Const and global variables
-TEMPTXTANIMBUFF = [0,1,2,3,4,5,6,7,8,9,10]
-COMBOMETERANIMBUFF = [11,12]
+TEMPTXTANIMBUFF = [x for x in range(0,41)]
+COMBOMETERANIMBUFF = [41,42]
 
 
 WHITE = (255,255,255)
@@ -35,7 +35,7 @@ HEIGHT = 720
 SOUNDON = True
 SHOOTWORDS = ["BOOOOM!", "SPLAAASH!", "POOOOOF!"]
 COMBOWORDS = ["Good combo!", "Nice!", "bloodthirsty!", "ruthless killer!", "Daemon!", "God of War!"]
-MAXFPS = 60
+MAXFPS = 2000
 fps = 60 
 deltaTime = 1/fps
 #Gameplay Variables
@@ -82,7 +82,7 @@ drawDic = {
 
 class Bullet:
     def __init__(self, x, y, spd, dmg, direction, 
-                scale = 1, color = WHITE, constLt = 10, isActive = False,  
+                scale = 1, color = WHITE, constLt = -1, constLD = 2000, isActive = False,  
                 shotByPlayer = False):
         #If the variable shotByPlayer is False it means the bullet should hit the player
         self.x = x
@@ -92,7 +92,8 @@ class Bullet:
         self.color = color
         self.scale = scale
         self.constLT = constLt
-        self.lifeTime = constLt #How much time before the bullet disappears (in seconds here TODO: Add distance lifetime)
+        self.lifeTime = constLt     #How much time before the bullet disappears (in seconds here)
+        self.lifeDistance = constLD
         self.isActive = isActive
         self.direction = direction
         self.initialX, self.initialY = 0,0 #Newly added to handle exponential speed
@@ -116,7 +117,7 @@ class BulletManager:
         for i in range(capacity):
             self.pool.append(Bullet(x, y, spd = spd, dmg = dmg, direction = (0,0), scale = scale, color = color)) #Instatiate pool object where there is all balls
         
-    def Instantiate(self, x, y, spd, dmg, scale, color, direction, shotByPlayer): #Instatiate a FREE ball
+    def Instantiate(self, x, y, spd, dmg, scale, color, direction, shotByPlayer): #Instatiate a FREE bullet
         (self.pool[self.current]).isActive = True 
         (self.pool[self.current]).x = x 
         (self.pool[self.current]).y = y
@@ -129,7 +130,6 @@ class BulletManager:
         (self.pool[self.current]).direction = direction
         (self.pool[self.current]).shotByPlayer = shotByPlayer
         (self.pool[self.current]).lifeTime = (self.pool[self.current]).constLT
-
         self.current +=1
         if self.current >= self.capacity:
             self.current = 0
@@ -226,9 +226,6 @@ class Text:
         self.font = pygame.font.Font(fontPath, fontSize)
         self.isActive = isActive
         self.sizeAnimRun, self.rotAnimRun, self.transAnimRun, self.alphaAnimRun = False,False,False,False
-        self.animInfos = [[0,0,0,0],[0,0,0,0]]
-        self.currentAnimationState = 0
-
     def Resize(self, newSize):
         if newSize != self.fontSize:
             self.fontSize = int(newSize)
@@ -314,7 +311,6 @@ class TextManager:
             for i in range(transSteps):
                 targetedList[index].position = (sTransPos+i*deltaTrans, sTransPosY + i*deltaTransY)
                 sleep(deltaTime)
-                if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
             
             targetedList[index].position = (eTransPos, eTransPosY)
             targetedList[index].transAnimRun = False
@@ -322,7 +318,6 @@ class TextManager:
             if (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun == 0:
                 if endTxtOff != -1:
                     sleep(endTxtOff)
-                    if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
                     targetedList[index].isActive = False
 
         #TODO: Fix this rotation which sucks
@@ -332,8 +327,6 @@ class TextManager:
             for i in range(sizeSteps):
                 targetedList[index].rotation = sRotAngle + i*deltaAngle
                 sleep(deltaTime)
-                if targetedList[index].animInfos[animationState] == [1,1,1,1]:
-                    return
 
             targetedList[index].rotation = eRotAngle
             targetedList[index].rotAnimRun = False
@@ -341,8 +334,6 @@ class TextManager:
             if (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun == 0:
                 if endTxtOff != -1:
                     sleep(endTxtOff)
-                    if targetedList[index].animInfos[animationState] == [1,1,1,1]:
-                         return
                     targetedList[index].isActive = False
 
 
@@ -352,7 +343,6 @@ class TextManager:
             for i in range(sizeSteps):
                 targetedList[index].Resize(sSize + i*deltaSize)
                 sleep(deltaTime)
-                if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
 
             targetedList[index].Resize(eSize)
             targetedList[index].sizeAnimRun = False
@@ -360,7 +350,6 @@ class TextManager:
             if(t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun == 0:
                 if endTxtOff != -1:
                     sleep(endTxtOff)
-                    if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
                     targetedList[index].isActive = False
         
 
@@ -370,14 +359,12 @@ class TextManager:
             for i in range(alphaSteps):
                 targetedList[index].alpha = sAlpha + i*deltaAlpha
                 sleep(deltaTime)
-                if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
 
             targetedList[index].alpha = eAlpha
             targetedList[index].alphaAnimRun = False
             if(t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun + t.alphaAnimRun == 0:
                 if endTxtOff != -1:
                     sleep(endTxtOff)
-                    if targetedList[index].animInfos[animationState] == [1,1,1,1]: return
                     targetedList[index].isActive = False
 
 
@@ -482,9 +469,10 @@ class ScoreManager:
 class CoroutinesManager:
     def __init__(self,maxCoroutines):
         self.coroutines = []
+        self.infoDic = {}
         for i in range(maxCoroutines):
             self.coroutines.append(None)
-    def startCoroutine(self, generator, *args, idd = None):
+    def startCoroutine(self, generator, *args, idd = None, info = ""):
         if idd == None:
             for i in range(len(self.coroutines)):
                 if self.coroutines[i] == None:
@@ -495,10 +483,24 @@ class CoroutinesManager:
                 idd = len(self.coroutines)
                 self.coroutines.append(None)
         self.coroutines[idd] = generator(idd,*args)
-        return idd
-    
+        if info!="":
+            self.infoDic[info] = idd
+        return (idd,info)
+    def getIddByInfo(self, info):
+        if info in self.infoDic:
+            return  self.infoDic[info]
+        return -1
     def stopCoroutine(self, idd):
         self.coroutines[idd] = None 
+    
+    def stopCoroutineWithInfo(self,info):
+        for i in self.coroutines:
+            co = self.coroutines[i]
+            if co[1] == info:
+                self.coroutines[i] = None
+
+        
+
 
 #Useful functions
 def clamp(minn, maxx, value):
@@ -532,7 +534,7 @@ dynamicObjects = [player, ennemyManager.pool]
 attachedToCam = [textManager.permText]
 nonAttachedToCam = [player, ennemyManager.pool]
 cam = Camera(nonAttachedToCam)
-coManager = CoroutinesManager(14)
+coManager = CoroutinesManager(70)
 #Coroutines generators
 def waitForSeconds(seconds):
     awaitTime = seconds
@@ -684,10 +686,15 @@ while running:
         if bullet.isActive:
             bullet.x += (bullet.direction[0]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialX-bullet.x)/LINEAR)))*deltaTime
             bullet.y += (bullet.direction[1]*bullet.spd*(PREEXP + PREEXPMUL*exp(-abs(bullet.initialY-bullet.y)/LINEAR)))*deltaTime
-            bullet.lifeTime -= deltaTime
-            if bullet.lifeTime<=0:
-                 bullet.lifeTime = bullet.constLT
-                 bullet.isActive = False
+            if bullet.lifeTime != -1:
+                bullet.lifeTime -= deltaTime
+                if bullet.lifeTime<=0:
+                    bullet.lifeTime = bullet.constLT
+                    bullet.isActive = False
+            if bullet.lifeDistance!= -1:
+                if CalculateMagnitude(  (bullet.x-bullet.initialX, bullet.y-bullet.initialY) )>=bullet.lifeDistance :
+                    bullet.isActive = False
+                    pass
             for i in range(len(ennemyManager.pool)):
                 ennemy = ennemyManager.pool[i]
                 if (CalculateMagnitude((abs(ennemy.x - bullet.x), abs(ennemy.y - bullet.y))) <= ennemy.scale + bullet.scale) and bullet.shotByPlayer:
@@ -699,9 +706,6 @@ while running:
                     score= scoreManager.score
                     highest = scoreManager.highestScore
                     scoreManager.highestScore = scoreManager.score if highest < scoreManager.score else highest
-                    #TODO:Fix this mess about killing a thread, make it more general
-                    anim = textManager.permText[0].currentAnimationState
-                    textManager.permText[0].currentAnimationState = 1-anim
                     textManager.permText[0].alphaAnimRun = False
     
                     textManager.permText[0].ChangeFont("res/Font Styles/Alice_in_Wonderland_3.TTF", 45)
@@ -842,3 +846,8 @@ while running:
     shootFrequency = max(0, shootFrequency - 1/fps)
     deltaTime = 1/fps
 pygame.quit()
+
+#Text animation know can run in threads or in coroutines; for instance, here there is the combometer animation which runs in coroutine
+#which compulsory since it needs to suspend it activity when game is paused. Meanwhile the cartoon animation when you shoot runs 
+#in threads, they are temporary, and just for fun don't need them to stop when game is paused
+#Threads run independently and trying to stop them causes a mess in the code
