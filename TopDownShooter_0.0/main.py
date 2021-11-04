@@ -4,6 +4,7 @@ import keyboard
 from random import randint, uniform, choice
 from time import time, sleep
 from numpy import exp, sin, cos, tan, arctan, arctan2
+from pygame import surface
 from thread6 import run_threaded
 #Init Pygame
 pygame.font.init()
@@ -111,9 +112,7 @@ class Bullet:
             if order not in drawDic:
                 order = max(drawDic)+1
             drawDic[order].append(("c",(screen, self.color, (self.x-camCoord[0], self.y-camCoord[1]), self.scale)))
-            
-        
-            
+
 
 
 
@@ -224,10 +223,47 @@ class EnnemyManager:
 
 
 
+class CoroutinesManager:
+    def __init__(self,maxCoroutines):
+        self.coroutines = []
+        self.infoDic = {}
+        for i in range(maxCoroutines):
+            self.coroutines.append(None)
+    def startCoroutine(self, generator, *args, idd = None, info = ""):
+        if idd == None:
+            for i in range(len(self.coroutines)):
+                if self.coroutines[i] == None:
+                    idd = i    #Picking up free coroutine
+                    break
+            if idd == None:
+                print("Warning: coroutine array size exceeded. Array was appended")
+                idd = len(self.coroutines)
+                self.coroutines.append(None)
+
+        self.coroutines[idd] = generator(idd,*args)
+        
+        if info!="":
+            self.infoDic[info] = idd
+        return (idd,info)
+    def getIddByInfo(self, info):
+        if info in self.infoDic:
+            return  self.infoDic[info]
+        return -1
+    def stopCoroutine(self, idd):
+        self.coroutines[idd] = None 
+    
+    def stopCoroutineWithInfo(self,info):
+        for i in self.coroutines:
+            co = self.coroutines[i]
+            if co[1] == info:
+                self.coroutines[i] = None
+
+coManager = CoroutinesManager(70)
+
 
 class Text:
     def __init__(self, text, fontPath, fontSize, position = (0,0),color = WHITE, alpha = 255, rotation = 0, 
-                isBold = False, isItalic = False, isActive = False):
+                isBold = False, isItalic = False, antialias = True,isActive = False):
         self.text = text
         self.fontPath = fontPath
         self.fontSize = fontSize
@@ -239,33 +275,60 @@ class Text:
         self.alpha = alpha
         self.font = pygame.font.Font(fontPath, fontSize)
         self.isActive = isActive
-        self.sizeAnimRun, self.rotAnimRun, self.transAnimRun, self.alphaAnimRun = False,False,False,False
+        self.antialias = True
+        self.textSurface = self.font.render(self.text, antialias, self.color)
+        self.sizeAnimRun,self.rotAnimRun,self.transAnimRun,self.alphaAnimRun = 0,0,0,0
+
     def Resize(self, newSize):
         if newSize != self.fontSize:
             self.fontSize = int(newSize)
             self.font = pygame.font.Font(self.fontPath, self.fontSize)
+            self.textSurface = self.font.render(self.text, self.antialias, self.color)
     
     def ChangeFont(self,newFontPath, newSize = -1):
         self.fontPath = newFontPath
         if newSize != -1:
             self.fontSize = newSize
         self.font = pygame.font.Font(self.fontPath, self.fontSize)
+        self.textSurface = self.font.render(self.text, self.antialias, self.color)
     
     def UseSysFont(self, newFontPath, newSize):
         fontPath = newFontPath
         if newSize != -1:
             self.fontSize = newSize
         self.font = pygame.font.SysFont(self.fontPath, self.fontSize)
+        self.textSurface = self.font.render(self.text, self.antialias, self.color)
     
     def Display(self, window, antialias = False):
-        textSurface = self.font.render(self.text, antialias, self.color)
+        self.textSurface = self.font.render(self.text, antialias, self.color)
+        self.antialias = antialias
         if self.rotation != 0:
-            textSurface = pygame.transform.rotate(textSurface, self.rotation)
-        textSurface.set_alpha(self.alpha)
-        window.blit(textSurface, self.position)
+            self.textSurface = pygame.transform.rotate(self.textSurface, self.rotation)
+        self.textSurface.set_alpha(self.alpha)
+        window.blit(self.textSurface, self.position)
 
 
 
+
+def GaddToArray(idd, string, interval, array, space):
+    wait = waitForSeconds(interval)
+    current = 0
+    currentX = 0
+    print(idd, interval, space, array)
+    while current != len(string):
+        while not next(wait):
+            yield
+        else:
+            #Appending array
+            text = Text(string[current], "res/Font Styles/Vogue.ttf", 25, position=(currentX,350))
+            currentX += (text.textSurface.get_size())[0] + space
+            array.append(text)
+            current +=1
+            wait = waitForSeconds(interval)
+            yield 
+    else:
+        coManager.coroutines[idd] = None
+        yield
 
 class TextManager:
     def __init__(self, tempTxtCapacity, permTxtCapacity):
@@ -275,7 +338,8 @@ class TextManager:
         '''
         self.tempTxtPool = []
         self.permText = []
-        self.curTempIndex = 0   #Current temp index
+        self.dialogueText = []    #Each letter should be a  surface
+        self.curTempIndex = 0         #Current temp index
 
         for i in range(tempTxtCapacity):
             self.tempTxtPool.append(Text("","res/Font Styles/BADABB__.TTF", 30, isActive = False))
@@ -309,7 +373,6 @@ class TextManager:
                     rotTime = 1, transTime = 1, sizeTime = 1, endTxtOff = -1):
         '''
         Interpolate between two states, linearly for now. "e" stands for end, meanwhile "s" stands for start.
-        SHOULD BE RAN AS THREAD!
         '''
         #TODO: Add other interpolation styles like exponential one
         deltaTime = 1/fps
@@ -380,8 +443,6 @@ class TextManager:
                 if endTxtOff != -1:
                     sleep(endTxtOff)
                     targetedList[index].isActive = False
-
-
         if index != -1:
             if sTransPos != -1:
                 run_threaded(transAnimation)
@@ -391,11 +452,15 @@ class TextManager:
                 run_threaded(sizeAnimation)
             if sAlpha !=-1:
                 run_threaded(alphaAnimation)
-            # while (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
-            #     continue
-            #I should pass this while loop to another core as the I slows the thread 
+        # while (t:=targetedList[index]).sizeAnimRun + t.rotAnimRun + t.transAnimRun != 0:
+        #     continue
+        #I should pass this while loop to another core as the I slows the thread 
         #The text for now would stay active if all of this threads finish exactly at the same time
         
+    
+    def displayDialogue(self, string, interval, space):
+        coManager.startCoroutine(GaddToArray,string, interval, self.dialogueText, space)
+
 
 
 
@@ -479,43 +544,6 @@ class ScoreManager:
 
 
 
-
-class CoroutinesManager:
-    def __init__(self,maxCoroutines):
-        self.coroutines = []
-        self.infoDic = {}
-        for i in range(maxCoroutines):
-            self.coroutines.append(None)
-    def startCoroutine(self, generator, *args, idd = None, info = ""):
-        if idd == None:
-            for i in range(len(self.coroutines)):
-                if self.coroutines[i] == None:
-                    idd = i    #Picking up free coroutine
-                    break
-            if idd == None:
-                print("Warning: coroutine array size exceeded. Array was appended")
-                idd = len(self.coroutines)
-                self.coroutines.append(None)
-        self.coroutines[idd] = generator(idd,*args)
-        if info!="":
-            self.infoDic[info] = idd
-        return (idd,info)
-    def getIddByInfo(self, info):
-        if info in self.infoDic:
-            return  self.infoDic[info]
-        return -1
-    def stopCoroutine(self, idd):
-        self.coroutines[idd] = None 
-    
-    def stopCoroutineWithInfo(self,info):
-        for i in self.coroutines:
-            co = self.coroutines[i]
-            if co[1] == info:
-                self.coroutines[i] = None
-
-        
-
-
 #Useful functions
 def clamp(minn, maxx, value):
     return max(minn, min(value, maxx))
@@ -548,11 +576,10 @@ dynamicObjects = [player, ennemyManager.pool]
 attachedToCam = [textManager.permText]
 nonAttachedToCam = [player, ennemyManager.pool]
 cam = Camera(nonAttachedToCam)
-coManager = CoroutinesManager(70)
+
 #Gun list--------------------------------------------------------
 gun_Pistol = Gun(1, 3, shotSound=PISTOLSHOTSOUND)
 gun_MachineGun = Gun(0.1, minRandom=0,maxRandom=8, btScale=5)
-
 
 currentGun = gun_Pistol
 #----------------------------------------------------------------
@@ -604,10 +631,11 @@ def GchangeObjBoolean(idd, obj, att, value, time):
         yield
 
 
+
 #Update and game logic
 forbidden = (None,None,None,None)
 running = True
-
+textManager.displayDialogue(string = "Hello World", interval = 1, space = 15)
 while running:
     drawDic = {
         0:[],
@@ -833,7 +861,7 @@ while running:
             textManager.tempTxtPool[index].rotation = randint(-45,45)
             textManager.tempTxtPool[index].text = choice(SHOOTWORDS)
             textManager.tempTxtPool[index].color = (255,randint(0,255), 0)
-            run_threaded(textManager.AnimateText, textManager.tempTxtPool, index,sTransPos = player.x-cam.x, eTransPos = player.x-cam.x + randint(-80,80), 
+            textManager.AnimateText(textManager.tempTxtPool, index,sTransPos = player.x-cam.x, eTransPos = player.x-cam.x + randint(-80,80),
                                     eTransPosY = player.y-cam.y + randint(-80,80), sTransPosY = player.y-cam.y, sAlpha = 255, eAlpha = 0, alphaTime=0.5,
                                     transTime = 0.1, endTxtOff = 0.5, sSize= 0, eSize = randint(20,40), sizeTime = 0.1)
 
@@ -858,7 +886,12 @@ while running:
     for i in range(len(textManager.permText)):
         if textManager.permText[i].isActive:
             textManager.permText[i].Display(game.window, antialias = True)
-
+    #Drawing dialgoues
+    i = 0
+    for txt in textManager.dialogueText:
+        i+=1
+        txt.Display(game.window)
+        txt.position = (txt.position[0],350 + 30*cos(time() + pi/i))
     #Display fps:
     game.window.blit(DEFAULTFONT.render(str(fps),False, BLUE), (0,0))
     #Updating shapes
