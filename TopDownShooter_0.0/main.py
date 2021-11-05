@@ -16,8 +16,8 @@ PISTOLSHOTSOUND = pygame.mixer.Sound('res/Pistolet Magnum.wav')
 PISTOLEQUIPSOUND = pygame.mixer.Sound('res/Pistol Equip1.wav')
 hitSound = pygame.mixer.Sound('res/Hit.wav')
 #Const and global variables
-TEMPTXTANIMBUFF = [x for x in range(0,41)]
-COMBOMETERANIMBUFF = [41,42]
+TEMPTXTANIMBUFF = [0]
+COMBOMETERANIMBUFF = [1,2]
 
 WHITE = (255,255,255)
 ORANGE = (255,165,0)
@@ -25,6 +25,7 @@ RED = (255, 0, 0)
 BLUE = (0,0,255)
 BLACK = (0,0,0)
 YELLOW = (255, 255, 0)
+PINK = (255,0,230)
 DEFAULTFONT = pygame.font.SysFont('Comic Sans MS', 30) #430
 COMICFONT = pygame.font.Font("res/Font Styles/BADABB__.TTF", 530)
 WIDTH = 1440
@@ -59,8 +60,7 @@ drawDic = {
     4:[],
     5:[],
     6:[],
-    7:[],
-}
+    7:[],}
 #Class Definition
 
 class Gun:
@@ -245,10 +245,12 @@ class CoroutinesManager:
         if info!="":
             self.infoDic[info] = idd
         return (idd,info)
+
+
     def getIddByInfo(self, info):
         if info in self.infoDic:
             return  self.infoDic[info]
-        return -1
+        return None
     def stopCoroutine(self, idd):
         self.coroutines[idd] = None 
     
@@ -258,7 +260,7 @@ class CoroutinesManager:
             if co[1] == info:
                 self.coroutines[i] = None
 
-coManager = CoroutinesManager(70)
+coManager = CoroutinesManager(0)
 
 
 class Text:
@@ -310,25 +312,7 @@ class Text:
 
 
 
-def GaddToArray(idd, string, interval, array, space):
-    wait = waitForSeconds(interval)
-    current = 0
-    currentX = 0
-    print(idd, interval, space, array)
-    while current != len(string):
-        while not next(wait):
-            yield
-        else:
-            #Appending array
-            text = Text(string[current], "res/Font Styles/Vogue.ttf", 25, position=(currentX,350))
-            currentX += (text.textSurface.get_size())[0] + space
-            array.append(text)
-            current +=1
-            wait = waitForSeconds(interval)
-            yield 
-    else:
-        coManager.coroutines[idd] = None
-        yield
+
 
 class TextManager:
     def __init__(self, tempTxtCapacity, permTxtCapacity):
@@ -458,10 +442,104 @@ class TextManager:
         #The text for now would stay active if all of this threads finish exactly at the same time
         
     
-    def displayDialogue(self, string, interval, space):
-        coManager.startCoroutine(GaddToArray,string, interval, self.dialogueText, space)
 
 
+
+
+def GaddToArray(idd, string, interval, array, space, letterPerInterval, dia):
+    wait = waitForSeconds(interval)
+    current = 0
+    currentX = 0
+    color = WHITE
+    while current < len(string):
+        while not next(wait):
+            yield
+        else:
+            #Appending array
+            for l in range(letterPerInterval):
+                if current >=len(string): break
+                info = ""
+                value = ""
+                #Captures tags and ignore that text while displaying
+                if string[current] == "<":
+                    info = ""
+                    value = ""
+                    current +=1
+                    while string[current]!=":":
+                        info += string[current]
+                        current +=1
+
+                    current +=1
+                    while string[current]!= ">":
+                        value += string[current]
+                        current +=1
+                    current += 1
+
+                text = Text(string[current], "res/Font Styles/Vogue.ttf", 25, position=(currentX,350))
+                #Apply captured tags
+                if info == "COLOR":
+                    print(info)
+                    if (value == "BLUE"): color = BLUE
+                    elif (value == "RED"): color = RED
+                    elif (value == "WHITE"): color = WHITE
+                    elif (value == "YELLOW"): color = YELLOW
+                    elif (value == "PINK"): color = PINK
+                text.color = color
+                currentX += (text.textSurface.get_size())[0] + space
+                array.append(text)
+                current +=1
+            wait = waitForSeconds(interval)
+            yield 
+    else:
+        coManager.coroutines[idd] = None
+        dia.isBusy = False
+        yield
+
+class Dialogue:
+    def __init__(self):
+        self.dialogueText = []
+        self.isBusy = False
+
+    def displayDialogue(self, string, interval, space, letterPerInterval = 3):
+        self.isBusy = True
+        coManager.startCoroutine(GaddToArray,string, interval, self.dialogueText, space, letterPerInterval, self)
+    def Clean(self):
+        self.dialogueText = []
+
+def GdisplaySet(idd,theSet, interval, waitForInput, dialogue:Dialogue):
+    wait = waitForSeconds(interval)
+    currentString = 0
+    string = theSet[currentString] 
+    dialogue.Clean()
+    dialogue.displayDialogue(string,0.0, 2, 1)
+    while currentString<len(theSet):
+        while dialogue.isBusy:
+            yield
+        else:
+            while not next(wait):
+                yield
+            else:
+                wait = waitForSeconds(interval)
+                currentString += 1
+                if (currentString<=len(theSet)-1):
+                    string = theSet[currentString] 
+                    dialogue.Clean()
+                    dialogue.displayDialogue(string, 0.0, 2, 1)
+                yield
+    else:
+        dialogue.Clean()
+        coManager.coroutines[idd] = None
+        yield
+        
+        
+class DialogueManager:
+    def __init__(self):
+        self.dialogues = [] #array of arrays
+    def Add(self, dialogue:Dialogue):
+        self.dialogues.append(dialogue)
+    def displaySetOfSentences(self, theSet, interval, waitForInput, index = 0):
+        coManager.startCoroutine(GdisplaySet, theSet, interval, waitForInput, self.dialogues[index])
+        
 
 
 class Game:
@@ -576,10 +654,10 @@ dynamicObjects = [player, ennemyManager.pool]
 attachedToCam = [textManager.permText]
 nonAttachedToCam = [player, ennemyManager.pool]
 cam = Camera(nonAttachedToCam)
-
+dm = DialogueManager()
 #Gun list--------------------------------------------------------
-gun_Pistol = Gun(1, 3, shotSound=PISTOLSHOTSOUND)
-gun_MachineGun = Gun(0.1, minRandom=0,maxRandom=8, btScale=5)
+gun_Pistol = Gun(1, 1, shotSound=PISTOLSHOTSOUND)
+gun_MachineGun = Gun(0.1, 3, minRandom=0,maxRandom=8, btScale=5)
 
 currentGun = gun_Pistol
 #----------------------------------------------------------------
@@ -635,7 +713,12 @@ def GchangeObjBoolean(idd, obj, att, value, time):
 #Update and game logic
 forbidden = (None,None,None,None)
 running = True
-textManager.displayDialogue(string = "Hello World", interval = 1, space = 15)
+dia = Dialogue()
+dm.Add(dia)
+dm.displaySetOfSentences(["<COLOR:WHITE>Don't <COLOR:BLUE>go there<COLOR:WHITE>.", "It's <COLOR:RED>dangerous<COLOR:WHITE> to be alone...", 
+                          "Find a <COLOR:PINK>whore and you will be no longer alone"], 2,0,0)
+#displayDialogue(string = "Hello traveller. Is you another one who is Looking for adventure is the dangeon?", interval = 0.1, space = 2 , letterPerInterval = 1)
+
 while running:
     drawDic = {
         0:[],
@@ -739,8 +822,10 @@ while running:
     #Updating bullets
     for bullet in bulletManager.pool:
         if bullet.isActive:
-            bullet.x += (bullet.direction[0]*bullet.spd*(bullet.preExp + bullet.preExpMul*exp(-abs(bullet.initialX-bullet.x)/bullet.linear)))*deltaTime
-            bullet.y += (bullet.direction[1]*bullet.spd*(bullet.preExp + bullet.preExpMul*exp(-abs(bullet.initialY-bullet.y)/bullet.linear)))*deltaTime
+            bullet.x += (bullet.direction[0]*bullet.spd*(bullet.preExp + 
+                        bullet.preExpMul*exp(-abs(bullet.initialX-bullet.x)/bullet.linear)))*deltaTime
+            bullet.y += (bullet.direction[1]*bullet.spd*(bullet.preExp + 
+                            bullet.preExpMul*exp(-abs(bullet.initialY-bullet.y)/bullet.linear)))*deltaTime
             if bullet.lifeTime != -1:
                 bullet.lifeTime -= deltaTime
                 if bullet.lifeTime<=0:
@@ -789,8 +874,9 @@ while running:
                     textManager.permText[0].color = (min(255,200+score),0,0)
                     textManager.permText[0].isActive = True
                     textManager.permText[0].alpha = 255
-                    coManager.startCoroutine(GInterpolateObjectValue, textManager.permText[0], "alpha", -255, 1.5, idd = COMBOMETERANIMBUFF[0])
-                    coManager.startCoroutine(GchangeObjBoolean, textManager.permText[0], "isActive", False, 1.5, idd = COMBOMETERANIMBUFF[1])
+                    coManager.startCoroutine(GInterpolateObjectValue, textManager.permText[0], "alpha", -255, 1.5, idd = coManager.getIddByInfo("Combo1Anim"), info = "Combo1Anim")
+                    coManager.startCoroutine(GchangeObjBoolean, textManager.permText[0], "isActive", False, 1.5, idd = coManager.getIddByInfo("Combo2Anim"), info = "Combo2Anim")
+
                     #textManager.AnimateText(textManager.permText, 0, animationState=1-anim, sAlpha = 255, eAlpha = 0, alphaTime= comboTime, endTxtOff=0)
                     #Colorize the ennemy
                     if not  ennemyManager.pool[i].colorThread:
@@ -888,10 +974,11 @@ while running:
             textManager.permText[i].Display(game.window, antialias = True)
     #Drawing dialgoues
     i = 0
-    for txt in textManager.dialogueText:
+    for txt in dia.dialogueText:
         i+=1
+        #txt.color = RED
         txt.Display(game.window)
-        txt.position = (txt.position[0],350 + 30*cos(time() + pi/i))
+        #txt.position = (txt.position[0],350 + 30*cos(time() + pi/i))
     #Display fps:
     game.window.blit(DEFAULTFONT.render(str(fps),False, BLUE), (0,0))
     #Updating shapes
