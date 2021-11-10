@@ -1,10 +1,10 @@
 from math import pi
+from numpy.lib.function_base import append
 import pygame
 import keyboard
 from random import randint, uniform, choice
 from time import time, sleep
 from numpy import exp, sin, cos, tan, arctan, arctan2
-from pygame import surface
 from thread6 import run_threaded
 #Init Pygame
 pygame.font.init()
@@ -265,7 +265,7 @@ coManager = CoroutinesManager(0)
 
 class Text:
     def __init__(self, text, fontPath, fontSize, position = (0,0),color = WHITE, alpha = 255, rotation = 0, 
-                isBold = False, isItalic = False, antialias = True,isActive = False):
+                isBold = False, isItalic = False, antialias = True,isActive = False, shakeFrequency = 0, shakeAmplitude = 0, shakeOffset = 0):
         self.text = text
         self.fontPath = fontPath
         self.fontSize = fontSize
@@ -279,7 +279,11 @@ class Text:
         self.isActive = isActive
         self.antialias = True
         self.textSurface = self.font.render(self.text, antialias, self.color)
-        self.sizeAnimRun,self.rotAnimRun,self.transAnimRun,self.alphaAnimRun = 0,0,0,0
+        self.sizeAnimRun,self.rotAnimRun,self.transAnimRun,self.alphaAnimRun = 0,0,0,0 #Obsolete but still make multithreading animations work
+        self.shakeAmplitude = shakeAmplitude
+        self.shakeFrequency = shakeFrequency
+        self.shakeOffset = shakeOffset
+        self.temp = self.position[1]
 
     def Resize(self, newSize):
         if newSize != self.fontSize:
@@ -451,19 +455,24 @@ def GaddToArray(idd, string, interval, array, space, letterPerInterval, dia):
     current = 0
     currentX = 0
     color = WHITE
+    fontSize = 20
+    a,b,c = "","",""
+    
     while current < len(string):
         while not next(wait):
             yield
         else:
             #Appending array
+            bonusWait = 0
             for l in range(letterPerInterval):
                 if current >=len(string): break
                 info = ""
-                value = ""
+                value = [""]
+
                 #Captures tags and ignore that text while displaying
-                if string[current] == "<":
+                while string[current] == "<":
                     info = ""
-                    value = ""
+                    value = [""]
                     current +=1
                     while string[current]!=":":
                         info += string[current]
@@ -471,24 +480,39 @@ def GaddToArray(idd, string, interval, array, space, letterPerInterval, dia):
 
                     current +=1
                     while string[current]!= ">":
-                        value += string[current]
+                        if string[current] == ",":
+                            value.append("")
+                            current +=1
+                        value[-1] += string[current]
                         current +=1
-                    current += 1
-
+                    current +=1
+                    #Apply captured tags
+                    if info == "COLOR":
+                        if (value[0] == "BLUE"): color = BLUE
+                        elif (value[0] == "RED"): color = RED
+                        elif (value[0] == "WHITE"): color = WHITE
+                        elif (value[0] == "YELLOW"): color = YELLOW
+                        elif (value[0] == "PINK"): color = PINK
+                    elif info == "SIZE":
+                        fontSize = int(value)
+                    elif info == "S":
+                        a,b,c = value[0], value[1], value[2]
+                                
+                    elif info == "W": 
+                        bonusWait = float(value[0])
                 text = Text(string[current], "res/Font Styles/Vogue.ttf", 25, position=(currentX,350))
-                #Apply captured tags
-                if info == "COLOR":
-                    print(info)
-                    if (value == "BLUE"): color = BLUE
-                    elif (value == "RED"): color = RED
-                    elif (value == "WHITE"): color = WHITE
-                    elif (value == "YELLOW"): color = YELLOW
-                    elif (value == "PINK"): color = PINK
+                
+                if a != "":
+                    text.shakeFrequency = float(b)  
+                    text.shakeAmplitude = float(a)
+                    text.shakeOffset = float(c)
+                text.temp = text.position[1]
                 text.color = color
+                text.Resize(fontSize)
                 currentX += (text.textSurface.get_size())[0] + space
-                array.append(text)
                 current +=1
-            wait = waitForSeconds(interval)
+                array.append(text)
+            wait = waitForSeconds(interval + bonusWait)
             yield 
     else:
         coManager.coroutines[idd] = None
@@ -506,8 +530,14 @@ class Dialogue:
     def Clean(self):
         self.dialogueText = []
 
+def GwaitForInput():
+    while not (keyboard.is_pressed('return')):
+        yield False
+    yield True
+
 def GdisplaySet(idd,theSet, interval, waitForInput, dialogue:Dialogue):
     wait = waitForSeconds(interval)
+    inputWait = GwaitForInput()
     currentString = 0
     string = theSet[currentString] 
     dialogue.Clean()
@@ -516,16 +546,20 @@ def GdisplaySet(idd,theSet, interval, waitForInput, dialogue:Dialogue):
         while dialogue.isBusy:
             yield
         else:
-            while not next(wait):
-                yield
+            if not waitForInput:
+                while not next(wait):
+                    yield
             else:
-                wait = waitForSeconds(interval)
-                currentString += 1
-                if (currentString<=len(theSet)-1):
-                    string = theSet[currentString] 
-                    dialogue.Clean()
-                    dialogue.displayDialogue(string, 0.0, 2, 1)
-                yield
+                while not next(inputWait):
+                    yield
+                inputWait = GwaitForInput()
+            wait = waitForSeconds(interval)
+            currentString += 1
+            if (currentString<=len(theSet)-1):
+                string = theSet[currentString] 
+                dialogue.Clean()
+                dialogue.displayDialogue(string, 0.0, 2, 1)
+            yield
     else:
         dialogue.Clean()
         coManager.coroutines[idd] = None
@@ -664,15 +698,12 @@ currentGun = gun_Pistol
 #Coroutines generators
 def waitForSeconds(seconds):
     awaitTime = seconds
-    while True:
+    while awaitTime>0:
         awaitTime -= deltaTime
-        if awaitTime>0:
-            yield False
-        else:
-            yield True
-            break
+        yield False
+    yield True
 
-def GprintAfter(idd,text,time):
+def GprintAfter(idd,text,time):         #My first generator; it's an example
     wait = waitForSeconds(time)
     while not next(wait):
        #Write the code executed at each frame here
@@ -680,7 +711,6 @@ def GprintAfter(idd,text,time):
     else:
         #Write the code executed after "time" has passed here
         coManager.coroutines[idd] = None
-        print(text)
         yield
 
 def GInterpolateObjectValue(idd, obj, att:str, value, time):
@@ -715,9 +745,9 @@ forbidden = (None,None,None,None)
 running = True
 dia = Dialogue()
 dm.Add(dia)
-dm.displaySetOfSentences(["<COLOR:WHITE>Don't <COLOR:BLUE>go there<COLOR:WHITE>.", "It's <COLOR:RED>dangerous<COLOR:WHITE> to be alone...", 
-                          "Find a <COLOR:PINK>whore and you will be no longer alone"], 2,0,0)
-#displayDialogue(string = "Hello traveller. Is you another one who is Looking for adventure is the dangeon?", interval = 0.1, space = 2 , letterPerInterval = 1)
+dm.displaySetOfSentences(["Wake up Neo.<W:0.1>.<W:0.1>.", "Follow then <COLOR:BLUE><S:3,0.5,0>w<S:3,0.5,1>h<S:3,0.5,2>i<S:3,0.5,3>t<S:3,0.5,4>e<S:3,0.5,5><COLOR:WHITE><S:0,0,0> rabbit..."
+                          ], 0.1,True,0)
+#displayDialogue(string = "Hello traveller. Is you another one who is Looking for adventure is the dangeon?", interval = 0.1, space = 2, letterPerInterval = 1)
 
 while running:
     drawDic = {
@@ -976,9 +1006,8 @@ while running:
     i = 0
     for txt in dia.dialogueText:
         i+=1
-        #txt.color = RED
+        txt.position = (txt.position[0],txt.temp + txt.shakeAmplitude*cos(time()*2*pi*txt.shakeFrequency+txt.shakeOffset)) #TODO: fix this by adding a temp variable to the class so it can store the original position
         txt.Display(game.window)
-        #txt.position = (txt.position[0],350 + 30*cos(time() + pi/i))
     #Display fps:
     game.window.blit(DEFAULTFONT.render(str(fps),False, BLUE), (0,0))
     #Updating shapes
