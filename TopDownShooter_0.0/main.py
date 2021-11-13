@@ -1,4 +1,5 @@
 from math import pi
+from re import X
 from numpy.lib.function_base import append
 import pygame
 import keyboard
@@ -26,6 +27,8 @@ BLUE = (0,0,255)
 BLACK = (0,0,0)
 YELLOW = (255, 255, 0)
 PINK = (255,0,230)
+GREEN = (0,255,0)
+
 DEFAULTFONT = pygame.font.SysFont('Comic Sans MS', 30) #430
 COMICFONT = pygame.font.Font("res/Font Styles/BADABB__.TTF", 530)
 WIDTH = 1440
@@ -445,18 +448,18 @@ class TextManager:
         #I should pass this while loop to another core as the I slows the thread 
         #The text for now would stay active if all of this threads finish exactly at the same time
         
-    
 
 
 
-
-def GaddToArray(idd, string, interval, array, space, letterPerInterval, dia):
+def GaddToArray(idd, string, interval, array, x, y, space, verticalSpace, letterPerInterval, dia):
     wait = waitForSeconds(interval)
     current = 0
-    currentX = 0
+    currentX = x
+    currentY = y
     color = WHITE
     fontSize = 20
     a,b,c = "","",""
+    text = Text("A", "res/Font Styles/Vogue.ttf", 25, position=(currentX,currentY))
     
     while current < len(string):
         while not next(wait):
@@ -470,6 +473,11 @@ def GaddToArray(idd, string, interval, array, space, letterPerInterval, dia):
                 value = [""]
 
                 #Captures tags and ignore that text while displaying
+                if string[current] == '\n':
+                    current += 1
+                    currentY += (text.textSurface.get_size())[1] + verticalSpace
+                    currentX = x
+
                 while string[current] == "<":
                     info = ""
                     value = [""]
@@ -493,6 +501,7 @@ def GaddToArray(idd, string, interval, array, space, letterPerInterval, dia):
                         elif (value[0] == "WHITE"): color = WHITE
                         elif (value[0] == "YELLOW"): color = YELLOW
                         elif (value[0] == "PINK"): color = PINK
+                        elif (value[0] == "GREEN"): color = GREEN
                     elif info == "SIZE":
                         fontSize = int(value)
                     elif info == "S":
@@ -500,7 +509,8 @@ def GaddToArray(idd, string, interval, array, space, letterPerInterval, dia):
                                 
                     elif info == "W": 
                         bonusWait = float(value[0])
-                text = Text(string[current], "res/Font Styles/Vogue.ttf", 25, position=(currentX,350))
+                #Setting Text object parameters
+                text = Text(string[current], "res/Font Styles/Vogue.ttf", 25, position=(currentX,currentY))
                 
                 if a != "":
                     text.shakeFrequency = float(b)  
@@ -524,9 +534,9 @@ class Dialogue:
         self.dialogueText = []
         self.isBusy = False
 
-    def displayDialogue(self, string, interval, space, letterPerInterval = 3):
+    def displayDialogue(self, string, interval, x, y, space = 2, verticalSpace=2, letterPerInterval = 1):
         self.isBusy = True
-        coManager.startCoroutine(GaddToArray,string, interval, self.dialogueText, space, letterPerInterval, self)
+        coManager.startCoroutine(GaddToArray,string, interval, self.dialogueText, x, y, space, verticalSpace, letterPerInterval, self)
     def Clean(self):
         self.dialogueText = []
 
@@ -535,13 +545,13 @@ def GwaitForInput():
         yield False
     yield True
 
-def GdisplaySet(idd,theSet, interval, waitForInput, dialogue:Dialogue):
+def GdisplaySet(idd,theSet, interval, waitForInput, dialogue:Dialogue, x, y):
     wait = waitForSeconds(interval)
     inputWait = GwaitForInput()
     currentString = 0
     string = theSet[currentString] 
     dialogue.Clean()
-    dialogue.displayDialogue(string,0.0, 2, 1)
+    dialogue.displayDialogue(string,0.0, x, y)
     while currentString<len(theSet):
         while dialogue.isBusy:
             yield
@@ -558,7 +568,7 @@ def GdisplaySet(idd,theSet, interval, waitForInput, dialogue:Dialogue):
             if (currentString<=len(theSet)-1):
                 string = theSet[currentString] 
                 dialogue.Clean()
-                dialogue.displayDialogue(string, 0.0, 2, 1)
+                dialogue.displayDialogue(string, 0.0, x, y)
             yield
     else:
         dialogue.Clean()
@@ -569,11 +579,30 @@ def GdisplaySet(idd,theSet, interval, waitForInput, dialogue:Dialogue):
 class DialogueManager:
     def __init__(self):
         self.dialogues = [] #array of arrays
+        self.minBoxX = 10000
+        self.maxBoxX = 0
+        self.minBoxY = 10000
+        self.maxBoxY = 0
+        self.boxColor = BLUE
     def Add(self, dialogue:Dialogue):
         self.dialogues.append(dialogue)
-    def displaySetOfSentences(self, theSet, interval, waitForInput, index = 0):
-        coManager.startCoroutine(GdisplaySet, theSet, interval, waitForInput, self.dialogues[index])
-        
+    def displaySetOfSentences(self, theSet, interval, waitForInput, x = 0, y = 0,index = 0):
+        coManager.startCoroutine(GdisplaySet, theSet, interval, waitForInput, self.dialogues[index], x, y)
+    def DisplayDynamicBox(self, window,offsetX, offsetY, index = 0):
+        for letter in self.dialogues[index].dialogueText:
+            if (letter.position)[0]< self.minBoxX: self.minBoxX = (letter.position)[0] 
+            if (letter.position)[1]< self.minBoxY: self.minBoxY = (letter.position)[1]
+            if (letter.position)[0]> self.maxBoxX: self.maxBoxX = (letter.position)[0] + letter.textSurface.get_size()[0]
+            if (letter.position)[1]> self.maxBoxY: self.maxBoxY = (letter.position)[1] + letter.textSurface.get_size()[1]
+        width = self.maxBoxX - self.minBoxX
+        height = self.maxBoxY - self.minBoxY
+        rect = pygame.Rect(self.minBoxX-offsetX, self.minBoxY-offsetY, width + offsetX, height + offsetY)
+        pygame.draw.rect(window, self.boxColor, rect)
+
+        #TODO: Optimize this function
+
+
+
 
 
 class Game:
@@ -739,16 +768,14 @@ def GchangeObjBoolean(idd, obj, att, value, time):
         yield
 
 
-
 #Update and game logic
 forbidden = (None,None,None,None)
 running = True
 dia = Dialogue()
 dm.Add(dia)
-dm.displaySetOfSentences(["Wake up Neo.<W:0.1>.<W:0.1>.", "Follow then <COLOR:BLUE><S:3,0.5,0>w<S:3,0.5,1>h<S:3,0.5,2>i<S:3,0.5,3>t<S:3,0.5,4>e<S:3,0.5,5><COLOR:WHITE><S:0,0,0> rabbit..."
-                          ], 0.1,True,0)
+dm.displaySetOfSentences(["Wake up Neo.<W:0.1>.<W:0.1>.", "<COLOR:GREEN>The Matrix<COLOR:WHITE> has you...", "Follow then <COLOR:YELLOW><S:0.5,10,0>w<S:0.5,10,1>h<S:0.5,10,2>i<S:0.5,10,3>t<S:0.5,10,4>e<S:0.5,10,5><COLOR:WHITE><S:0,0,0>\n rabbit..."
+                          ], 0.1,True,250, 250, 0)
 #displayDialogue(string = "Hello traveller. Is you another one who is Looking for adventure is the dangeon?", interval = 0.1, space = 2, letterPerInterval = 1)
-
 while running:
     drawDic = {
         0:[],
@@ -994,6 +1021,7 @@ while running:
             if args[0] == "r":
               pygame.draw.rect(*args[1])
 
+
     #Drawing temporary text
     for i in range(len(textManager.tempTxtPool)):
         if textManager.tempTxtPool[i].isActive:
@@ -1003,12 +1031,13 @@ while running:
         if textManager.permText[i].isActive:
             textManager.permText[i].Display(game.window, antialias = True)
     #Drawing dialgoues
+    dm.DisplayDynamicBox(game.window, 10,10,0)
     i = 0
     for txt in dia.dialogueText:
         i+=1
-        txt.position = (txt.position[0],txt.temp + txt.shakeAmplitude*cos(time()*2*pi*txt.shakeFrequency+txt.shakeOffset)) #TODO: fix this by adding a temp variable to the class so it can store the original position
+        txt.position = (txt.position[0],txt.temp + txt.shakeAmplitude*cos(time()*2*pi*txt.shakeFrequency+txt.shakeOffset)) 
         txt.Display(game.window)
-    #Display fps:
+    #Display fps
     game.window.blit(DEFAULTFONT.render(str(fps),False, BLUE), (0,0))
     #Updating shapes
     pygame.display.flip()
@@ -1024,6 +1053,6 @@ while running:
 pygame.quit()
 
 #Text animation know can run in threads or in coroutines; for instance, here there is the combometer animation which runs in coroutine
-#which compulsory since it needs to suspend it activity when game is paused. Meanwhile the cartoon animation when you shoot runs 
+#which compulsory since it needs to suspend it activity when game is paused. Meanwhile the cartoon anatimion when you shoot runs 
 #in threads, they are temporary, and just for fun don't need them to stop when game is paused
 #Threads run independently and trying to stop them causes a mess in the code
