@@ -1,12 +1,11 @@
 from math import pi
-from re import X
-from numpy.lib.function_base import append
 import pygame
 import keyboard
 from random import randint, uniform, choice
 from time import time, sleep
 from numpy import exp, sin, cos, tan, arctan, arctan2
 from thread6 import run_threaded
+import DialogueList
 #Init Pygame
 pygame.font.init()
 pygame.mixer.init()
@@ -458,8 +457,9 @@ def GaddToArray(idd, string, interval, array, x, y, space, verticalSpace, letter
     currentY = y
     color = WHITE
     fontSize = 20
+    fontName = "res/Font Styles/Vogue.ttf"
     a,b,c = "","",""
-    text = Text("A", "res/Font Styles/Vogue.ttf", 25, position=(currentX,currentY))
+    text = Text("A", fontName, 25, position=(currentX,currentY))
     
     while current < len(string):
         while not next(wait):
@@ -473,11 +473,6 @@ def GaddToArray(idd, string, interval, array, x, y, space, verticalSpace, letter
                 value = [""]
 
                 #Captures tags and ignore that text while displaying
-                if string[current] == '\n':
-                    current += 1
-                    currentY += (text.textSurface.get_size())[1] + verticalSpace
-                    currentX = x
-
                 while string[current] == "<":
                     info = ""
                     value = [""]
@@ -506,11 +501,20 @@ def GaddToArray(idd, string, interval, array, x, y, space, verticalSpace, letter
                         fontSize = int(value)
                     elif info == "S":
                         a,b,c = value[0], value[1], value[2]
-                                
+                    elif info == "FONT":
+                        if value[0] == "Alice": fontName = "res/Font Styles/Alice_in_Wonderland_3.TTF"
+
                     elif info == "W": 
                         bonusWait = float(value[0])
+                #Order is important
+                if string[current] == '\n':  
+                    current += 1
+                    currentY += (text.textSurface.get_size())[1] + verticalSpace
+                    currentX = x
+                    continue
                 #Setting Text object parameters
-                text = Text(string[current], "res/Font Styles/Vogue.ttf", 25, position=(currentX,currentY))
+                text = Text(string[current], fontName, fontSize, position=(currentX,currentY))
+                #print(text.textSurface.get_size()[1]) Text surface of aiwl is bigger than vogue??Nani?? TODO:Fix this dynamic box issue
                 
                 if a != "":
                     text.shakeFrequency = float(b)  
@@ -518,9 +522,8 @@ def GaddToArray(idd, string, interval, array, x, y, space, verticalSpace, letter
                     text.shakeOffset = float(c)
                 text.temp = text.position[1]
                 text.color = color
-                text.Resize(fontSize)
                 currentX += (text.textSurface.get_size())[0] + space
-                current +=1
+                current += 1
                 array.append(text)
             wait = waitForSeconds(interval + bonusWait)
             yield 
@@ -773,8 +776,7 @@ forbidden = (None,None,None,None)
 running = True
 dia = Dialogue()
 dm.Add(dia)
-dm.displaySetOfSentences(["Wake up Neo.<W:0.1>.<W:0.1>.", "<COLOR:GREEN>The Matrix<COLOR:WHITE> has you...", "Follow then <COLOR:YELLOW><S:0.5,10,0>w<S:0.5,10,1>h<S:0.5,10,2>i<S:0.5,10,3>t<S:0.5,10,4>e<S:0.5,10,5><COLOR:WHITE><S:0,0,0>\n rabbit..."
-                          ], 0.1,True,250, 250, 0)
+dm.displaySetOfSentences(DialogueList.SET1TEST, 0.1,True,250, 250, 0)
 #displayDialogue(string = "Hello traveller. Is you another one who is Looking for adventure is the dangeon?", interval = 0.1, space = 2, letterPerInterval = 1)
 while running:
     drawDic = {
@@ -1017,7 +1019,7 @@ while running:
     for key in drawDic:
         for args in drawDic[key]:
             if args[0] == "c":
-              pygame.draw.circle(*args[1]) #For know there are just circles
+              pygame.draw.circle(*args[1]) #For now there are just circles
             if args[0] == "r":
               pygame.draw.rect(*args[1])
 
@@ -1031,7 +1033,8 @@ while running:
         if textManager.permText[i].isActive:
             textManager.permText[i].Display(game.window, antialias = True)
     #Drawing dialgoues
-    dm.DisplayDynamicBox(game.window, 10,10,0)
+    if dia.dialogueText != []:
+        dm.DisplayDynamicBox(game.window, 10,10,0)
     i = 0
     for txt in dia.dialogueText:
         i+=1
