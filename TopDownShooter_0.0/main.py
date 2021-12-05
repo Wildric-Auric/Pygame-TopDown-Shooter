@@ -4,12 +4,19 @@ import keyboard
 from random import randint, uniform, choice
 from time import time, sleep
 from numpy import exp, sin, cos, tan, arctan, arctan2
+from pygame.constants import BLEND_ADD, BLEND_MULT, BLEND_RGBA_MULT, BLEND_RGBA_SUB
 from thread6 import run_threaded
+from multiprocessing import Process, Value
+import os
 import DialogueList
+
+#OS varibale
+#os.environ["runningBlend"] = "0"
 #Init Pygame
 pygame.font.init()
 pygame.mixer.init()
 pygame.mixer.set_num_channels(40)
+pygame.display.init()
 #Loading ressources
 SHOTSOUND0 = pygame.mixer.Sound('res/Laser7.wav')
 PISTOLSHOTSOUND = pygame.mixer.Sound('res/Pistolet Magnum.wav')
@@ -35,7 +42,7 @@ HEIGHT = 720
 SOUNDON = True
 SHOOTWORDS = ["BOOOOM!", "SPLAAASH!", "POOOOOF!"]
 COMBOWORDS = ["Good combo!", "Nice!", "bloodthirsty!", "ruthless killer!", "Daemon!", "God of War!"]
-MAXFPS = 61
+MAXFPS = 400
 fps = 60 
 deltaTime = 1/fps
 #Gameplay Variables
@@ -45,6 +52,10 @@ PLAYERSPEED = 1000
 moveX,moveY = 0,0           #Taking -1, 0, or 1 as values of player Move
 ennemy1Spd = 1000
 
+#Light system variables
+AMBIENTLIGHT = (20,20,20)
+usingLightSystem = True
+#-----
 ennemyMove = 50
 pushForce = 0      #Number of pixels of moving when touched by a bullet
 shootFrequency = 0
@@ -502,7 +513,8 @@ def GaddToArray(idd, string, interval, array, x, y, space, verticalSpace, letter
                     elif info == "S":
                         a,b,c = value[0], value[1], value[2]
                     elif info == "FONT":
-                        if value[0] == "Alice": fontName = "res/Font Styles/Alice_in_Wonderland_3.TTF"
+                        if value[0] == "Alice": fontName = "res/Font Styles/Fresh Lychee.ttf"
+                        if value[0] == "Vogue": fontName = "res/Font Styles/Champagne & Limousines.ttf"
 
                     elif info == "W": 
                         bonusWait = float(value[0])
@@ -610,6 +622,8 @@ class DialogueManager:
 
 class Game:
     def __init__(self, width, height, fullScreen = False):
+        self.width = width
+        self.height = height
         if fullScreen:
             self.window = pygame.display.set_mode((width, height), flags=pygame.FULLSCREEN)
         else:
@@ -686,8 +700,26 @@ class ScoreManager:
         self.highestScore = 0
 
 
+class SpotLight:
+    def __init__(self,color = WHITE,x = 0, y = 0):
+        self.x = x
+        self.y = y
+        self.color = color
+        self.isActive = True
+        self.gradient = SPOTLIGHT.copy()
+    def rescale(self, size):
+        pygame.transform.scale(self.gradient,size)
 
 
+class LightingSystem:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.spotLights = [SpotLight() for x in range(capacity)]
+    def add(self, color = WHITE, x = 0, y = 0):
+        self.capacity += 1
+        self.spotLights.append(SpotLight(x=x, y=y, color=color))
+
+    
 #Useful functions
 def clamp(minn, maxx, value):
     return max(minn, min(value, maxx))
@@ -713,6 +745,9 @@ levelManager = LevelManager(0,0)
 levelManager.walls = [Wall(1440/2,700, BLUE, 1440/2,20), 
                       Wall(1420, 350, BLUE, 20, 300)]
 scoreManager = ScoreManager()
+
+SPOTLIGHT = pygame.image.load("res/Textures/SpotLight1.png").convert_alpha()
+lightingSystem = LightingSystem(2)
 #Init info arrays
 #I found out that class objects are passed by reference to an array, it allows me to do a lot of abstraction
 staticObjects = []
@@ -771,291 +806,319 @@ def GchangeObjBoolean(idd, obj, att, value, time):
         yield
 
 
+def Blend(game, filter):
+    global runningBlend
+    game.window.blit(filter, (0,0), special_flags=BLEND_RGBA_MULT)
+    runningBlend = False
+    
 #Update and game logic
+filter = pygame.surface.Surface((game.width, game.height), pygame.SRCALPHA, 32).convert_alpha()
 forbidden = (None,None,None,None)
 running = True
 dia = Dialogue()
 dm.Add(dia)
 dm.displaySetOfSentences(DialogueList.SET1TEST, 0.1,True,250, 250, 0)
 #displayDialogue(string = "Hello traveller. Is you another one who is Looking for adventure is the dangeon?", interval = 0.1, space = 2, letterPerInterval = 1)
-while running:
-    drawDic = {
-        0:[],
-        1:[],
-        2:[],
-        3:[],
-        4:[],
-        5:[],
-        6:[],
-        7:[],
-    }
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_0:
-                if currentGun == gun_Pistol:
-                    currentGun = gun_MachineGun
-                    shootFrequency = 0.2
-                    PISTOLEQUIPSOUND.play()
-                else:
-                    currentGun = gun_Pistol
-                    shootFrequency = 0.2
-                    PISTOLEQUIPSOUND.play()
+if __name__ == '__main__':
+    runningBlend = False
+    while running:
+        drawDic = {
+            0:[],
+            1:[],
+            2:[],
+            3:[],
+            4:[],
+            5:[],
+            6:[],
+            7:[],
+        }
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_0:
+                    if currentGun == gun_Pistol:
+                        currentGun = gun_MachineGun
+                        shootFrequency = 0.2
+                        PISTOLEQUIPSOUND.play()
+                    else:
+                        currentGun = gun_Pistol
+                        shootFrequency = 0.2
+                        PISTOLEQUIPSOUND.play()
 
-    if keyboard.is_pressed("E"):
-        deltaTime=0
-    #Setting background color
-    game.SetBgColor(BLACK)
-    #Getting move inputs
-    moveX = (keyboard.is_pressed("right") or keyboard.is_pressed("D")) - (keyboard.is_pressed("left") or keyboard.is_pressed("Q"))*player.isControlled
-    moveY = (keyboard.is_pressed("down") or keyboard.is_pressed("S"))- (keyboard.is_pressed("up") or keyboard.is_pressed("Z"))*player.isControlled
-    # if (player.x, player.y, moveX,moveY) == forbidden:
-    #     moveX,moveY = 0,0     Extra collision handler
-    #Calculating shoot direction 
-    mousePos = pygame.mouse.get_pos() #Gives a couple x,y
-    mousePos = (mousePos[0]+cam.x, mousePos[1]+cam.y)
-    bulletDirection = (mousePos[0] - player.x, mousePos[1] - player.y)
-    bulletDirection = NormalizeVect(bulletDirection)
-    #Move player
-    player.x += moveX*player.spd*deltaTime
-    player.y += moveY*player.spd*deltaTime
-    #Handle player collision
-    for wall in levelManager.walls:
-        wall.Draw(game.window, 0, (cam.x,cam.y))
-        if moveX != 0 or moveY != 0:
-            playerMinX = player.x - player.scale
-            playerMaxX = player.x + player.scale
-            playerMinY,playerMaxY = player.y - player.scale, player.y + player.scale
-            wallMinX,wallMaxX = wall.x - wall.hw, wall.x+wall.hw
-            wallMinY, wallMaxY = wall.y - wall.hh, wall.y+wall.hh
-            overlap = 0
-            if (playerMinX < wallMinX) and playerMinX<wallMinX<playerMaxX:
-                overlap += 1
-            elif ( wallMinX < playerMinX ) and wallMinX<playerMinX<wallMaxX:
-                overlap += 1
-            if (playerMinY < wallMinY) and playerMinY<wallMinY<playerMaxY:
-                overlap += 1
-            elif (  wallMinY < playerMinY ) and wallMinY<playerMinY<wallMaxY:
-                overlap += 1
-            if overlap ==2:
-                movX, movY = moveX, moveY
-                moveX, moveY = 0,0
-                while True:
-                    playerMinX = player.x - player.scale
-                    playerMaxX = player.x + player.scale
-                    playerMinY,playerMaxY = player.y - player.scale, player.y + player.scale
-                    wallMinX,wallMaxX = wall.x - wall.hw, wall.x+wall.hw
-                    wallMinY, wallMaxY = wall.y - wall.hh, wall.y+wall.hh
-                    overlap = 0
-                    if (playerMinX < wallMinX) and playerMinX<wallMinX<playerMaxX:
-                        overlap += 1
-                    elif (  wallMinX < playerMinX ) and wallMinX<playerMinX<wallMaxX:
-                        overlap += 1
-                    if (playerMinY < wallMinY) and playerMinY<wallMinY<playerMaxY:
-                        overlap += 1
-                    elif (  wallMinY < playerMinY ) and wallMinY<playerMinY<wallMaxY:
-                        overlap += 1
-                    player.x -=2*movX
-                    player.y -=2*movY
+        if keyboard.is_pressed("E"):
+            deltaTime=0
+        #Setting background color
+        game.SetBgColor(BLACK)
+        #Getting move inputs
+        moveX = (keyboard.is_pressed("right") or keyboard.is_pressed("D")) - (keyboard.is_pressed("left") or keyboard.is_pressed("Q"))*player.isControlled
+        moveY = (keyboard.is_pressed("down") or keyboard.is_pressed("S"))- (keyboard.is_pressed("up") or keyboard.is_pressed("Z"))*player.isControlled
+        # if (player.x, player.y, moveX,moveY) == forbidden:
+        #     moveX,moveY = 0,0     Extra collision handler
+        #Calculating shoot direction 
+        mousePos = pygame.mouse.get_pos() #Gives a couple x,y
+        mousePos = (mousePos[0]+cam.x, mousePos[1]+cam.y)
+        bulletDirection = (mousePos[0] - player.x, mousePos[1] - player.y)
+        bulletDirection = NormalizeVect(bulletDirection)
+        #Move player
+        player.x += moveX*player.spd*deltaTime
+        player.y += moveY*player.spd*deltaTime
+        #Handle player collision
+        for wall in levelManager.walls:
+            wall.Draw(game.window, 0, (cam.x,cam.y))
+            if moveX != 0 or moveY != 0:
+                playerMinX = player.x - player.scale
+                playerMaxX = player.x + player.scale
+                playerMinY,playerMaxY = player.y - player.scale, player.y + player.scale
+                wallMinX,wallMaxX = wall.x - wall.hw, wall.x+wall.hw
+                wallMinY, wallMaxY = wall.y - wall.hh, wall.y+wall.hh
+                overlap = 0
+                if (playerMinX < wallMinX) and playerMinX<wallMinX<playerMaxX:
+                    overlap += 1
+                elif ( wallMinX < playerMinX ) and wallMinX<playerMinX<wallMaxX:
+                    overlap += 1
+                if (playerMinY < wallMinY) and playerMinY<wallMinY<playerMaxY:
+                    overlap += 1
+                elif (  wallMinY < playerMinY ) and wallMinY<playerMinY<wallMaxY:
+                    overlap += 1
+                if overlap ==2:
+                    movX, movY = moveX, moveY
                     moveX, moveY = 0,0
-                    if overlap != 2:
-                        # forbidden = (player.x, player.y, movX,movY)
-                        break
-    #Drawing the player
-    player.Draw(game.window, 1,(cam.x, cam.y))
-    #Update Camera when player crosses level bounderies
-    
-    if (player.x >= cam.x + WIDTH) and not cam.isMoving:  #RIGHT BOUNDARY
-        player.x += 1
-        cam.UpdatePosition(cam.x + WIDTH, cam.y, transitionTime)
-    elif (player.x <= cam.x) and not cam.isMoving:          #LEFT BOUNDARY
-        player.x -= 1
-        cam.UpdatePosition(cam.x - WIDTH, cam.y, transitionTime)
-    elif (player.y <= cam.y)and not cam.isMoving:         #TOP BOUNDARY
-        player.y -= 1
-        cam.UpdatePosition(cam.x, cam.y - HEIGHT, transitionTime)          
-    elif (player.y >= cam.y + HEIGHT) and not cam.isMoving:       #DOWN BOUNDARY
-        player.y += 1
-        cam.UpdatePosition(cam.x, cam.y + HEIGHT, transitionTime)
-    #Updating bullets
-    for bullet in bulletManager.pool:
-        if bullet.isActive:
-            bullet.x += (bullet.direction[0]*bullet.spd*(bullet.preExp + 
-                        bullet.preExpMul*exp(-abs(bullet.initialX-bullet.x)/bullet.linear)))*deltaTime
-            bullet.y += (bullet.direction[1]*bullet.spd*(bullet.preExp + 
-                            bullet.preExpMul*exp(-abs(bullet.initialY-bullet.y)/bullet.linear)))*deltaTime
-            if bullet.lifeTime != -1:
+                    while True:
+                        playerMinX = player.x - player.scale
+                        playerMaxX = player.x + player.scale
+                        playerMinY,playerMaxY = player.y - player.scale, player.y + player.scale
+                        wallMinX,wallMaxX = wall.x - wall.hw, wall.x+wall.hw
+                        wallMinY, wallMaxY = wall.y - wall.hh, wall.y+wall.hh
+                        overlap = 0
+                        if (playerMinX < wallMinX) and playerMinX<wallMinX<playerMaxX:
+                            overlap += 1
+                        elif (  wallMinX < playerMinX ) and wallMinX<playerMinX<wallMaxX:
+                            overlap += 1
+                        if (playerMinY < wallMinY) and playerMinY<wallMinY<playerMaxY:
+                            overlap += 1
+                        elif (  wallMinY < playerMinY ) and wallMinY<playerMinY<wallMaxY:
+                            overlap += 1
+                        player.x -=2*movX
+                        player.y -=2*movY
+                        moveX, moveY = 0,0
+                        if overlap != 2:
+                            # forbidden = (player.x, player.y, movX,movY)
+                            break
+        #Drawing the player
+        player.Draw(game.window, 1,(cam.x, cam.y))
+        #Update Camera when player crosses level bounderies
+        
+        if (player.x >= cam.x + WIDTH) and not cam.isMoving:  #RIGHT BOUNDARY
+            player.x += 1
+            cam.UpdatePosition(cam.x + WIDTH, cam.y, transitionTime)
+        elif (player.x <= cam.x) and not cam.isMoving:          #LEFT BOUNDARY
+            player.x -= 1
+            cam.UpdatePosition(cam.x - WIDTH, cam.y, transitionTime)
+        elif (player.y <= cam.y)and not cam.isMoving:         #TOP BOUNDARY
+            player.y -= 1
+            cam.UpdatePosition(cam.x, cam.y - HEIGHT, transitionTime)          
+        elif (player.y >= cam.y + HEIGHT) and not cam.isMoving:       #DOWN BOUNDARY
+            player.y += 1
+            cam.UpdatePosition(cam.x, cam.y + HEIGHT, transitionTime)
+        #Updating bullets
+        for bullet in bulletManager.pool:
+            if bullet.isActive:
+                bullet.x += (bullet.direction[0]*bullet.spd*(bullet.preExp + 
+                            bullet.preExpMul*exp(-abs(bullet.initialX-bullet.x)/bullet.linear)))*deltaTime
+                bullet.y += (bullet.direction[1]*bullet.spd*(bullet.preExp + 
+                                bullet.preExpMul*exp(-abs(bullet.initialY-bullet.y)/bullet.linear)))*deltaTime
+                if bullet.lifeTime != -1:
+                    bullet.lifeTime -= deltaTime
+                    if bullet.lifeTime<=0:
+                        bullet.lifeTime = bullet.constLT
+                        bullet.isActive = False
+                if bullet.lifeDistance!= -1:
+                    if CalculateMagnitude(  (bullet.x-bullet.initialX, bullet.y-bullet.initialY) )>=bullet.lifeDistance :
+                        bullet.isActive = False
+                        pass
+                for i in range(len(ennemyManager.pool)):
+                    ennemy = ennemyManager.pool[i]
+                    if (CalculateMagnitude((abs(ennemy.x - bullet.x), abs(ennemy.y - bullet.y))) <= ennemy.scale + bullet.scale) and bullet.shotByPlayer:
+                        bullet.lifeTime = bullet.constLT
+                        bullet.isActive = False
+                        hitSound.play()
+                        #Hit text effect and score
+                        scoreManager.score +=1
+                        score= scoreManager.score
+                        highest = scoreManager.highestScore
+                        scoreManager.highestScore = scoreManager.score if highest < scoreManager.score else highest
+                        textManager.permText[0].alphaAnimRun = False
+        
+                        textManager.permText[0].ChangeFont("res/Font Styles/Alice_in_Wonderland_3.TTF", 45)
+                        
+                        if 0<score<10:
+                            comboWord = ""
+                        elif 10<=score<20:
+                            comboWord = COMBOWORDS[0]
+                        elif 20<=score<40:
+                            comboWord = COMBOWORDS[1]
+                        elif 40<=score<80:
+                            comboWord = COMBOWORDS[2]
+                        elif 80<=score<150:
+                            comboWord = COMBOWORDS[3]
+                        elif 150<=score<300:
+                            comboWord = COMBOWORDS[4]
+                        elif 300<=score<500:
+                            comboWord = COMBOWORDS[5]
+
+                        textManager.permText[0].text = "+ {} {}".format(scoreManager.score, comboWord)
+                        textManager.permText[0].rotation = randint(-10,10)
+                        pos = (1100,350)
+                        if player.x-cam.x > WIDTH/2:
+                            pos = (30, 350) 
+                        textManager.permText[0].position = pos
+                        textManager.permText[0].color = (min(255,200+score),0,0)
+                        textManager.permText[0].isActive = True
+                        textManager.permText[0].alpha = 255
+                        coManager.startCoroutine(GInterpolateObjectValue, textManager.permText[0], "alpha", -255, 1.5, idd = coManager.getIddByInfo("Combo1Anim"), info = "Combo1Anim")
+                        coManager.startCoroutine(GchangeObjBoolean, textManager.permText[0], "isActive", False, 1.5, idd = coManager.getIddByInfo("Combo2Anim"), info = "Combo2Anim")
+
+                        #textManager.AnimateText(textManager.permText, 0, animationState=1-anim, sAlpha = 255, eAlpha = 0, alphaTime= comboTime, endTxtOff=0)
+                        #Colorize the ennemy
+                        if not  ennemyManager.pool[i].colorThread:
+                            ennemyManager.pool[i].colorThread = True
+                            run_threaded(ennemyManager.pool[i].ChangeColor, ennemyManager.pool[i].color, COLORCHANGEDURATION)
+                            ennemyManager.pool[i].color = WHITE
+                        #Pushing the ennemy
+                        ennemyManager.pool[i].x += bullet.direction[0]*pushForce
+                        ennemyManager.pool[i].y += bullet.direction[1]*pushForce
+                bullet.Draw(game.window, 2, (cam.x, cam.y))
+        #Renitialize score
+        if not textManager.permText[0].isActive:
+            scoreManager.score = 0
+        for bullet in imaginaryBulletManager.pool:
+            if bullet.isActive:
+                bullet.x += (bullet.direction[0]*bullet.spd*(bullet.preExp + bullet.preExpMul*exp(-abs(bullet.initialX-bullet.x)/bullet.linear)))*deltaTime
+                bullet.y += (bullet.direction[1]*bullet.spd*(bullet.preExp + bullet.preExpMul*exp(-abs(bullet.initialY-bullet.y)/bullet.linear)))*deltaTime
                 bullet.lifeTime -= deltaTime
                 if bullet.lifeTime<=0:
-                    bullet.lifeTime = bullet.constLT
-                    bullet.isActive = False
-            if bullet.lifeDistance!= -1:
-                if CalculateMagnitude(  (bullet.x-bullet.initialX, bullet.y-bullet.initialY) )>=bullet.lifeDistance :
-                    bullet.isActive = False
-                    pass
-            for i in range(len(ennemyManager.pool)):
-                ennemy = ennemyManager.pool[i]
-                if (CalculateMagnitude((abs(ennemy.x - bullet.x), abs(ennemy.y - bullet.y))) <= ennemy.scale + bullet.scale) and bullet.shotByPlayer:
-                    bullet.lifeTime = bullet.constLT
-                    bullet.isActive = False
-                    hitSound.play()
-                    #Hit text effect and score
-                    scoreManager.score +=1
-                    score= scoreManager.score
-                    highest = scoreManager.highestScore
-                    scoreManager.highestScore = scoreManager.score if highest < scoreManager.score else highest
-                    textManager.permText[0].alphaAnimRun = False
-    
-                    textManager.permText[0].ChangeFont("res/Font Styles/Alice_in_Wonderland_3.TTF", 45)
-                    
-                    if 0<score<10:
-                        comboWord = ""
-                    elif 10<=score<20:
-                        comboWord = COMBOWORDS[0]
-                    elif 20<=score<40:
-                        comboWord = COMBOWORDS[1]
-                    elif 40<=score<80:
-                        comboWord = COMBOWORDS[2]
-                    elif 80<=score<150:
-                        comboWord = COMBOWORDS[3]
-                    elif 150<=score<300:
-                        comboWord = COMBOWORDS[4]
-                    elif 300<=score<500:
-                        comboWord = COMBOWORDS[5]
+                        bullet.lifeTime = bullet.constLT
+                        bullet.isActive = False
+                for i in range(len(ennemyManager.pool)):
+                    ennemy = ennemyManager.pool[i]
+                    if ennemy.canDodge and (CalculateMagnitude((abs(ennemy.x - bullet.x), abs(ennemy.y - bullet.y))) <= ennemy.scale + bullet.scale) and bullet.shotByPlayer:
+                        bullet.lifeTime = bullet.constLT
+                        bullet.isActive = False
+                        by = choice([-1,1])
+                        newVect = (0,0)
+                        if bulletDirection[1] < 0.01:
+                            newVect = (0,1)
+                        elif bulletDirection[0] < 0.01:
+                            newVect = (1,0)
+                        else:
+                            newVect = NormalizeVect((-bullet.direction[1]*by/bullet.direction[0],by))
+                        ennemy.x += newVect[0]*ennemyMove
+                        ennemy.y  += newVect[1]*ennemyMove
+            pass
 
-                    textManager.permText[0].text = "+ {} {}".format(scoreManager.score, comboWord)
-                    textManager.permText[0].rotation = randint(-10,10)
-                    pos = (1100,350)
-                    if player.x-cam.x > WIDTH/2:
-                        pos = (30, 350) 
-                    textManager.permText[0].position = pos
-                    textManager.permText[0].color = (min(255,200+score),0,0)
-                    textManager.permText[0].isActive = True
-                    textManager.permText[0].alpha = 255
-                    coManager.startCoroutine(GInterpolateObjectValue, textManager.permText[0], "alpha", -255, 1.5, idd = coManager.getIddByInfo("Combo1Anim"), info = "Combo1Anim")
-                    coManager.startCoroutine(GchangeObjBoolean, textManager.permText[0], "isActive", False, 1.5, idd = coManager.getIddByInfo("Combo2Anim"), info = "Combo2Anim")
-
-                    #textManager.AnimateText(textManager.permText, 0, animationState=1-anim, sAlpha = 255, eAlpha = 0, alphaTime= comboTime, endTxtOff=0)
-                    #Colorize the ennemy
-                    if not  ennemyManager.pool[i].colorThread:
-                        ennemyManager.pool[i].colorThread = True
-                        run_threaded(ennemyManager.pool[i].ChangeColor, ennemyManager.pool[i].color, COLORCHANGEDURATION)
-                        ennemyManager.pool[i].color = WHITE
-                    #Pushing the ennemy
-                    ennemyManager.pool[i].x += bullet.direction[0]*pushForce
-                    ennemyManager.pool[i].y += bullet.direction[1]*pushForce
-            bullet.Draw(game.window, 2, (cam.x, cam.y))
-    #Renitialize score
-    if not textManager.permText[0].isActive:
-        scoreManager.score = 0
-    for bullet in imaginaryBulletManager.pool:
-        if bullet.isActive:
-            bullet.x += (bullet.direction[0]*bullet.spd*(bullet.preExp + bullet.preExpMul*exp(-abs(bullet.initialX-bullet.x)/bullet.linear)))*deltaTime
-            bullet.y += (bullet.direction[1]*bullet.spd*(bullet.preExp + bullet.preExpMul*exp(-abs(bullet.initialY-bullet.y)/bullet.linear)))*deltaTime
-            bullet.lifeTime -= deltaTime
-            if bullet.lifeTime<=0:
-                    bullet.lifeTime = bullet.constLT
-                    bullet.isActive = False
-            for i in range(len(ennemyManager.pool)):
-                ennemy = ennemyManager.pool[i]
-                if ennemy.canDodge and (CalculateMagnitude((abs(ennemy.x - bullet.x), abs(ennemy.y - bullet.y))) <= ennemy.scale + bullet.scale) and bullet.shotByPlayer:
-                    bullet.lifeTime = bullet.constLT
-                    bullet.isActive = False
-                    by = choice([-1,1])
-                    newVect = (0,0)
-                    if bulletDirection[1] < 0.01:
-                        newVect = (0,1)
-                    elif bulletDirection[0] < 0.01:
-                        newVect = (1,0)
-                    else:
-                        newVect = NormalizeVect((-bullet.direction[1]*by/bullet.direction[0],by))
-                    ennemy.x += newVect[0]*ennemyMove
-                    ennemy.y  += newVect[1]*ennemyMove
-        pass
-
-    #Ennemies rendering and their behaviour
-    for ennemy in ennemyManager.pool:
-        if ennemy.isAlive:
-            ennemy.Draw(game.window, 0, (cam.x, cam.y))
-    
-    #Player Shoot
-    if (pygame.mouse.get_pressed()) == (1,0,0):
-        if (shootFrequency == 0):
-            shootFrequency = currentGun.shootFrequency
-            for i in range(currentGun.bulletPerShot):
-                #Randomize shot direction
-                percent = randint(currentGun.minRandom, currentGun.maxRandom)*choice([-1,1])*pi/180
-                angle = pi/2
-                signX = bulletDirection[0]
-                signY = bulletDirection[1]
-                if bulletDirection[0]: angle = arctan2(bulletDirection[1],bulletDirection[0])
-                bulletDirection = (cos(angle+percent), sin(angle+percent))
-                #Instantiate Bullet
-                bulletManager.Instantiate(player.x, player.y, associatedGun=currentGun, direction = bulletDirection)
-
-                # imaginaryBulletManager.Instantiate(player.x, player.y, spd = BULLETSPD*2, dmg = BULLETDAMAGE,scale = BULLETSCALE, color = (randint(50,255),
-                #         randint(50,255),randint(50,255)), direction = bulletDirection, shotByPlayer = True)
-            if SOUNDON:
-                currentGun.shotSound.play()
-          
-
-            index = textManager.activateFreeTxt()
-            textManager.tempTxtPool[index].text = ""
-            textManager.tempTxtPool[index].ChangeFont(choice(["res/Font Styles/BADABB__.TTF", "res/Font Styles/Cocola.ttf", "res/Font Styles/Fresh Lychee.ttf"]))
-            textManager.tempTxtPool[index].rotation = randint(-45,45)
-            textManager.tempTxtPool[index].text = choice(SHOOTWORDS)
-            textManager.tempTxtPool[index].color = (255,randint(0,255), 0)
-            textManager.AnimateText(textManager.tempTxtPool, index,sTransPos = player.x-cam.x, eTransPos = player.x-cam.x + randint(-80,80),
-                                    eTransPosY = player.y-cam.y + randint(-80,80), sTransPosY = player.y-cam.y, sAlpha = 255, eAlpha = 0, alphaTime=0.5,
-                                    transTime = 0.1, endTxtOff = 0.5, sSize= 0, eSize = randint(20,40), sizeTime = 0.1)
-
-    #Advancing coroutines 
-    for co in coManager.coroutines:
-        if co != None:
-            next(co)
+        #Ennemies rendering and their behaviour
+        for ennemy in ennemyManager.pool:
+            if ennemy.isAlive:
+                ennemy.Draw(game.window, 0, (cam.x, cam.y))
         
-    #Drawing shapes
-    for key in drawDic:
-        for args in drawDic[key]:
-            if args[0] == "c":
-              pygame.draw.circle(*args[1]) #For now there are just circles
-            if args[0] == "r":
-              pygame.draw.rect(*args[1])
+        #Player Shoot
+        if (pygame.mouse.get_pressed()) == (1,0,0):
+            if (shootFrequency == 0):
+                shootFrequency = currentGun.shootFrequency
+                for i in range(currentGun.bulletPerShot):
+                    #Randomize shot direction
+                    percent = randint(currentGun.minRandom, currentGun.maxRandom)*choice([-1,1])*pi/180
+                    angle = pi/2
+                    signX = bulletDirection[0]
+                    signY = bulletDirection[1]
+                    if bulletDirection[0]: angle = arctan2(bulletDirection[1],bulletDirection[0])
+                    bulletDirection = (cos(angle+percent), sin(angle+percent))
+                    #Instantiate Bullet
+                    bulletManager.Instantiate(player.x, player.y, associatedGun=currentGun, direction = bulletDirection)
+
+                    # imaginaryBulletManager.Instantiate(player.x, player.y, spd = BULLETSPD*2, dmg = BULLETDAMAGE,scale = BULLETSCALE, color = (randint(50,255),
+                    #         randint(50,255),randint(50,255)), direction = bulletDirection, shotByPlayer = True)
+                if SOUNDON:
+                    currentGun.shotSound.play()
+            
+
+                index = textManager.activateFreeTxt()
+                textManager.tempTxtPool[index].text = ""
+                textManager.tempTxtPool[index].ChangeFont(choice(["res/Font Styles/BADABB__.TTF", "res/Font Styles/Cocola.ttf", "res/Font Styles/Fresh Lychee.ttf"]))
+                textManager.tempTxtPool[index].rotation = randint(-45,45)
+                textManager.tempTxtPool[index].text = choice(SHOOTWORDS)
+                textManager.tempTxtPool[index].color = (255,randint(0,255), 0)
+                textManager.AnimateText(textManager.tempTxtPool, index,sTransPos = player.x-cam.x, eTransPos = player.x-cam.x + randint(-80,80),
+                                        eTransPosY = player.y-cam.y + randint(-80,80), sTransPosY = player.y-cam.y, sAlpha = 255, eAlpha = 0, alphaTime=0.5,
+                                        transTime = 0.1, endTxtOff = 0.5, sSize= 0, eSize = randint(20,40), sizeTime = 0.1)
+
+        #Advancing coroutines 
+        for co in coManager.coroutines:
+            if co != None:
+                next(co)
+            
+        #Drawing shapes
+        for key in drawDic:
+            for args in drawDic[key]:
+                if args[0] == "c":
+                    pygame.draw.circle(*args[1]) #For now there are just circles
+                if args[0] == "r":
+                    pygame.draw.rect(*args[1])
 
 
-    #Drawing temporary text
-    for i in range(len(textManager.tempTxtPool)):
-        if textManager.tempTxtPool[i].isActive:
-            textManager.tempTxtPool[i].Display(game.window, antialias = True)
-    #Drawing permanent text
-    for i in range(len(textManager.permText)):
-        if textManager.permText[i].isActive:
-            textManager.permText[i].Display(game.window, antialias = True)
-    #Drawing dialgoues
-    if dia.dialogueText != []:
-        dm.DisplayDynamicBox(game.window, 10,10,0)
-    i = 0
-    for txt in dia.dialogueText:
-        i+=1
-        txt.position = (txt.position[0],txt.temp + txt.shakeAmplitude*cos(time()*2*pi*txt.shakeFrequency+txt.shakeOffset)) 
-        txt.Display(game.window)
-    #Display fps
-    game.window.blit(DEFAULTFONT.render(str(fps),False, BLUE), (0,0))
-    #Updating shapes
-    pygame.display.flip()
-    #Calculating fps
-    fps = int(clock.get_fps())
-    if fps < 5:
-        fps = 60
-    #Updating time variables
-    shootFrequency = max(0, shootFrequency - deltaTime)
-    deltaTime = 1/fps
+        #Appliying light 
+        if  usingLightSystem:
+            filter.fill(AMBIENTLIGHT)
+            light = lightingSystem.spotLights[0]
+            light.x = player.x    #pygame.mouse.get_pos()[0]
+            light.y = player.y    #pygame.mouse.get_pos()[1]
+            light.gradient = pygame.transform.scale(light.gradient, (1000,1000))
+            filter.blit(light.gradient, (light.x-light.gradient.get_size()[0]//2, 
+                        light.y-light.gradient.get_size()[1]//2))
 
-    clock.tick(MAXFPS)
-pygame.quit()
+            a,b =pygame.mouse.get_pos()
+            if  not runningBlend:
+                runningBlend = True
+                run_threaded(Blend, game, filter)
 
-#Text animation know can run in threads or in coroutines; for instance, here there is the combometer animation which runs in coroutine
-#which compulsory since it needs to suspend it activity when game is paused. Meanwhile the cartoon anatimion when you shoot runs 
-#in threads, they are temporary, and just for fun don't need them to stop when game is paused
-#Threads run independently and trying to stop them causes a mess in the code
+            #Process(target=Blend, args=(game,filter, (a,b), runningBlend)).start()
+            #Calling Blend Function here causes a drop of fps until it reaches 15-20fps; I think the blend is done 
+            #cpu iterating over pixels... I'm trying to make this in another process
+            #doing it in a thread does not change any
+            #TODO: Fix this
+        #Drawing temporary text
+        for i in range(len(textManager.tempTxtPool)):
+            if textManager.tempTxtPool[i].isActive:
+                textManager.tempTxtPool[i].Display(game.window, antialias = True)
+        #Drawing permanent text
+        for i in range(len(textManager.permText)):
+            if textManager.permText[i].isActive:
+                textManager.permText[i].Display(game.window, antialias = True)
+        #Drawing dialgoues
+        if dia.dialogueText != []:
+            dm.DisplayDynamicBox(game.window, 10,10,0)
+        i = 0
+        for txt in dia.dialogueText:
+            i+=1
+            txt.position = (txt.position[0],txt.temp + txt.shakeAmplitude*cos(time()*2*pi*txt.shakeFrequency+txt.shakeOffset)) 
+            txt.Display(game.window)
+        #Display fps
+        game.window.blit(DEFAULTFONT.render(str(fps),False, BLUE), (0,0))
+        #Updating shapes
+        pygame.display.flip()
+        #Calculating fps
+        fps = int(clock.get_fps())
+        if fps < 5:
+            fps = 60
+        #Updating time variables
+        shootFrequency = max(0, shootFrequency - deltaTime)
+        deltaTime = 1/fps
+
+        clock.tick(MAXFPS)
+    pygame.quit()
+
+    #Text animation know can run in threads or in coroutines; for instance, here there is the combometer animation which runs in coroutine
+    #which compulsory since it needs to suspend it activity when game is paused. Meanwhile the cartoon anatimion when you shoot runs 
+    #in threads, they are temporary, and just for fun don't need them to stop when game is paused
+    #Threads run independently and trying to stop them causes a mess in the code
